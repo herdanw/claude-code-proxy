@@ -1,0 +1,23 @@
+# Rust build output
+/target/
+
+# IDE and local planning artifacts
+/.idea/
+/.planning/
+/.worktrees/
+
+# Local SQLite/runtime data
+*.db
+*.db-shm
+*.db-wal
+
+# Logs and temp files
+*.log
+*.tmp
+*.temp
+
+# OS metadata
+Thumbs.db
+Desktop.ini
+.DS_Store
+
