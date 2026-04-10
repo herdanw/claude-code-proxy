@@ -1,102 +1,123 @@
-# Settings Editor Redesign — Design Spec
+# Settings Editor Redesign
 
-**Date:** 2026-04-10
+**Date:** 2026-04-10  
 **Status:** Approved
 
-## Overview
+## Summary
 
-Replace the current complex Settings tab (two-panel layout with history, tags, revision preview, mismatch detection) with a single full-width JSON editor. Modern, clean, syntax-highlighted, with inline error detection.
+Rewrite the settings editor from a complex history-tracking panel to a simple, modern JSON editor with syntax highlighting, inline validation, and real-time error detection. Remove history/tags/revisions UI and backend endpoints. Keep mismatch detection.
 
-## Design Decisions
+## Decisions
 
-| Decision | Choice | Rationale |
-|----------|--------|-----------|
-| Layout | Full-width single editor | Maximum space for JSON content |
-| History UI | Removed entirely | Simplicity — backend still records history silently |
-| Mismatch detection UI | Removed | Editor always loads from disk; no DB comparison surfaced |
-| Backups | Silent auto-backups on save (backend unchanged) | Safety net without UI clutter |
-| Syntax highlighting | Custom textarea + pre overlay | Zero dependencies, matches dashboard's single-file philosophy |
-| Color scheme | Catppuccin (match existing dashboard theme) | Visual consistency |
-| Validation | Inline on every keystroke (debounced 150ms) | Immediate feedback, easy to detect issues |
-| Error display | Red line highlight in gutter + error bar below editor | Clear, non-intrusive |
-| Save | Button + Ctrl+S shortcut | Standard UX |
-| Dirty state | Yellow "Unsaved changes" indicator + beforeunload warning | Prevent accidental data loss |
+| Decision | Choice |
+|----------|--------|
+| Backend scope | Strip history/tags/revisions endpoints. Keep mismatch detection + current/apply. |
+| Editor type | Syntax-highlighted textarea (overlay technique), no external deps |
+| Layout | Full-width single panel, toolbar at top |
+| Error UX | Inline line highlighting + error banner with jump-to-line |
 
 ## Editor Architecture
 
 ### Visual Structure
 
 ```
-┌─────────────────────────────────────┐
-│ ~/.claude/settings.json    ● Saved  │  ← header bar
-├────┬────────────────────────────────┤
-│ 1  │ {                              │  ← gutter + overlay editor
-│ 2  │   "effortLevel": "high",       │
-│ 3  │   "env": {                     │
-│ …  │   …                            │
-├────┴────────────────────────────────┤
-│ ⚠ Line 4: Expected comma           │  ← error bar (only when invalid)
-├─────────────────────────────────────┤
-│ [Save]  Ctrl+S     Last saved 2m…   │  ← footer
-└─────────────────────────────────────┘
+┌─────────────────────────────────────────────────┐
+│ CLAUDE SETTINGS.JSON   ~/.claude/settings.json  │  ← title bar
+│                        [Format] [Reset] [Apply] │  ← toolbar buttons
+├─────────────────────────────────────────────────┤
+│ ⚠ settings.json on disk differs from last       │  ← mismatch callout
+│   applied config     [Keep disk] [Keep DB]      │     (conditional, orange)
+├─────────────────────────────────────────────────┤
+│ ✕ Line 7: Expected ',' after property value     │  ← error banner
+│                                   jump to line  │     (conditional, red)
+├────┬────────────────────────────────────────────┤
+│ 1  │ {                                          │  ← gutter + overlay editor
+│ 2  │   "model": "claude-sonnet-4-20250514",     │
+│ 3  │   "permissions": {                         │
+│ 4  │     "allow": ["Bash(*)"],                  │
+│ 5  │     "deny": []                             │
+│ 6  │   },                                       │
+│*7  │   "maxTokens": 8096                        │  ← error line (red bg)
+│ 8  │   "apiKey": "sk-ant-..."                   │
+│ 9  │ }                                          │
+├────┴────────────────────────────────────────────┤
+│ 9 lines • 234 bytes      Last applied: 2m ago   │  ← status bar
+└─────────────────────────────────────────────────┘
 ```
 
 ### Overlay Technique
 
-A `<textarea>` with transparent text sits on top of a `<pre>` that renders syntax-highlighted content. Both share identical font, size, padding, and scroll position. The textarea handles all input; the pre handles all rendering.
+A `<textarea>` with transparent text sits on top of a `<pre>` that renders syntax-highlighted content. Both share identical font, size, padding, and scroll position.
 
-- **textarea**: `color: transparent; caret-color: var(--text-0);` — invisible text, visible cursor
-- **pre**: positioned behind textarea, receives highlighted HTML on every input
-- **gutter**: separate div with line numbers, scroll-synced with editor
+```
+┌─────────────────────────────────────┐
+│ <div class="editor-container">      │
+│   ┌───────────────────────────────┐ │
+│   │ <pre class="editor-highlight">│ │ ← visible, colored, pointer-events:none
+│   │   (tokenized HTML)            │ │
+│   │ </pre>                        │ │
+│   │ <textarea class="editor-input"│ │ ← on top, transparent text, receives input
+│   │   (raw text)                  │ │
+│   │ </textarea>                   │ │
+│   └───────────────────────────────┘ │
+│ </div>                              │
+└─────────────────────────────────────┘
+```
+
+- Both elements: `position: absolute`, same dimensions
+- Textarea: `color: transparent; caret-color: #e8e9f0; background: transparent`
+- Pre: `pointer-events: none; white-space: pre-wrap`
+- On input: tokenize textarea value → update pre innerHTML
+- On scroll: sync `pre.scrollTop = textarea.scrollTop`
 
 ### Components
 
-1. **Header bar** — file path (`~/.claude/settings.json`), status indicator
-   - `● Saved` (green) when content matches last save
-   - `● Unsaved changes` (yellow) when dirty
+1. **Toolbar** — Title ("CLAUDE SETTINGS.JSON"), file path hint, buttons:
+   - **Format**: Pretty-print JSON (2-space indent)
+   - **Reset**: Reload from server (confirm if dirty)
+   - **Apply**: Submit to server (disabled + muted when JSON invalid)
 
-2. **Gutter** — line numbers, right-aligned, scroll-synced
-   - Normal: `--text-2` color
-   - Error line: `--red` color, bold
+2. **Mismatch callout** (conditional) — Orange banner when disk differs from last-applied config
+   - "Keep disk" / "Keep DB" resolution buttons
+   - Hidden when no mismatch
 
-3. **Editor surface** — textarea (input layer) + pre (render layer)
-   - Scroll-synced via `textarea.onscroll` → mirror scrollTop/scrollLeft on pre and gutter
+3. **Error banner** (conditional) — Red banner with parsed error message
+   - Shows line number + error description
+   - "Jump to line" link scrolls editor and places cursor
+   - Hidden when JSON is valid
 
-4. **Error bar** — only visible when JSON is invalid
-   - Left red border accent, red-tinted background
-   - Shows: `⚠ Line N: <error message>`
-   - When valid: hidden entirely
+4. **Editor area** — Gutter + overlay
+   - Line number gutter, scroll-synced
+   - Error line: red gutter number, red left border, red background tint
+   - Textarea for input, pre for rendering
 
-5. **Footer** — save button, shortcut hint, last-saved timestamp
-   - Save button: cyan (`--cyan`) when enabled, muted when JSON is invalid
-   - Last saved: relative time ("2 minutes ago"), updates on interval
+5. **Status bar** — Line count + byte size on left, "Last applied: X ago" on right
 
 ## Syntax Highlighting
 
-Regex-based JSON tokenizer. Runs on every input event to re-render the `<pre>` content.
+Regex-based JSON tokenizer (~60 lines). Runs on every input to re-render the `<pre>`.
 
-| Token | Color | CSS Variable |
-|-------|-------|-------------|
-| Keys (`"effortLevel"`) | Blue | `--blue` (#89b4fa) |
-| String values (`"high"`) | Green | `--green` (#a6e3a1) |
-| Numbers (`256`, `8192`) | Peach | `--peach` (#fab387) |
-| Booleans (`true`, `false`) | Red | `--red` (#f38ba8) |
-| Null (`null`) | Mauve | `--mauve` (#cba6f7) |
-| Brackets/braces (`{}`, `[]`) | Mauve | `--mauve` (#cba6f7) |
-| Colons, commas | Muted | `--text-2` (#6c7086) |
+| Token | Color | Hex |
+|-------|-------|-----|
+| Keys | Blue | `#7aa2f7` |
+| String values | Green | `#9ece6a` |
+| Numbers | Orange | `#ff9e64` |
+| Booleans / null | Purple | `#bb9af7` |
+| Punctuation (brackets, braces, colons, commas) | Gray | `#a9adc1` |
+| Error line | Red | `#f7768e` |
 
-Key vs string differentiation: a quoted string preceded by a newline/whitespace and followed by `:` is a key; all other quoted strings are values.
+Key vs string: a quoted string followed by `:` is a key; all others are values.
 
 ## Error Detection
 
-On every `input` event (debounced 150ms):
+On every `input` event (debounced 300ms):
 
 1. `JSON.parse(textarea.value)` in try/catch
-2. If error: extract line number from error message, highlight gutter line red, show error bar
-3. If valid: hide error bar, reset gutter colors
-4. Error line: gutter number turns `--red` + bold; that line in the pre gets a subtle red background tint (`rgba(243,139,168,0.1)`)
+2. If error: extract line number from error message position, highlight error line, show banner
+3. If valid: hide banner, reset all line highlights
+4. Apply button disabled when invalid (`opacity: 0.4; cursor: not-allowed; pointer-events: none`)
 
-Save button is **disabled** (muted, `cursor: not-allowed`) when JSON is invalid. Ctrl+S is a no-op when invalid.
+Error line marking: gutter number turns red, line in pre gets `background: rgba(247,118,142,0.1)` + `border-left: 3px solid #f7768e`.
 
 ## Data Flow
 
@@ -106,105 +127,85 @@ Save button is **disabled** (muted, `cursor: not-allowed`) when JSON is invalid.
 2. Extract `data.claude_settings.raw_json`
 3. `JSON.stringify(raw_json, null, 2)` → set textarea value
 4. Render highlighted pre
-5. Set `lastSavedContent = textarea.value`
-6. Set `lastSavedAt = Date.now()`
-7. Show `● Saved`
+5. Store as `lastAppliedContent`
+6. Check `db_file_mismatch` flag → show/hide mismatch callout
 
-### Save (button click or Ctrl+S)
+### Apply (button click)
 
-1. Validate: `JSON.parse(textarea.value)` — if invalid, shake error bar, abort
-2. Set button to loading state
-3. `POST /api/settings/apply` with body: `{ "settings": <parsed JSON> }`
-4. On success:
-   - `lastSavedContent = textarea.value`
-   - `lastSavedAt = Date.now()`
-   - Show `● Saved` (green)
-   - Flash success briefly in footer
-5. On error:
-   - Show error message in footer for 5 seconds
-   - Keep `● Unsaved changes`
+1. Validate: `JSON.parse(textarea.value)` — if invalid, abort
+2. `POST /api/settings/apply` with `{ json: <parsed value> }`
+3. On success: green toast "Settings applied successfully" (fades after 3s), update timestamp
+4. On failure: red toast with server error
+5. Update `lastAppliedContent`
 
-### Dirty Detection
+### Mismatch Resolution
 
-- On every input: compare `textarea.value !== lastSavedContent`
-- If dirty: header shows `● Unsaved changes` (yellow), register `beforeunload` handler
-- If clean: header shows `● Saved` (green), remove `beforeunload` handler
+Same as current: "Keep disk" applies disk version, "Keep DB" restores DB version. Both trigger the apply flow.
 
 ## What Gets Removed
 
-### HTML (~40 lines deleted)
+### Frontend HTML (~40 lines)
 
-- `settings-history-panel` — entire left column
-- `settings-history-search` input
-- `settings-history-clear-all-btn`
-- `settings-history-list`
-- `settings-mismatch-callout` + keep-disk/keep-db buttons
-- `settings-history-preview-json` + load-into-editor button
-- `settings-quick-tags-input` + hint
-- `grid grid-2` wrapper on the settings tab
+- `settings-history-panel` — entire sidebar
+- History search input, clear-all button, history list
+- Preview panel + load-into-editor button
+- Tags input + hint
+- `grid grid-2` wrapper on settings tab
 
-### JS State Variables (~10 deleted)
+### Frontend JS (~500 lines)
 
-- `settingsHistorySearchQuery`, `settingsHistoryRequestToken`
-- `selectedSettingsHistoryId`, `selectedSettingsPreviewId`
-- `settingsHistoryById` (Map)
-- `settingsMismatchActive`, `settingsDiskLoadedSnapshot`, `settingsDbSnapshotCandidate`
-- `settingsApplyInFlight`, `settingsMismatchActionTaken`
+**State variables:** `settingsHistorySearchQuery`, `settingsHistoryRequestToken`, `selectedSettingsHistoryId`, `selectedSettingsPreviewId`, `settingsHistoryById`, `settingsApplyInFlight`
 
-### JS Functions (~200 lines deleted)
+**Functions:** `loadSettingsHistory`, `renderSettingsHistory`, `loadSelectedSettingsIntoEditor`, `deleteSettingsHistoryRevision`, `clearAllSettingsHistory`, `renderSettingsHistoryTags`, `toggleSettingsHistoryTag`, history row render/select/preview/delete handlers, tag patch handlers
 
-- `renderSettingsHistory()`, `loadSettingsHistory()`
-- `clearAllSettingsHistory()`
-- `renderSettingsMismatchCallout()`
-- History row render/select/preview/delete handlers
-- Tag patch handlers
-- Keep-disk/keep-db-snapshot handlers
+### Backend — Endpoints Removed
 
-### What Gets Added (~200 lines)
+- `GET /api/settings/history` — history list with search/pagination
+- `DELETE /api/settings/history/:id` — delete single revision
+- `DELETE /api/settings/history` — clear all history
+- `PATCH /api/settings/history/:id/tags` — tag management
 
-- New editor HTML structure
-- `highlightJSON(text)` — tokenizer, returns highlighted HTML
+### Backend — Logic Simplified
+
+- `POST /api/settings/apply` — stop inserting into `settings_revision` and `settings_revision_tags` tables. Keep atomic file write + `settings_current` update.
+- Remove `derive_settings_tags()` and tag-related functions
+- Remove history query/search functions
+- Leave tables in schema (no migration needed)
+
+## What Gets Added (~350 lines)
+
+### Frontend HTML (~100 lines)
+
+New editor card structure: toolbar, mismatch callout, error banner, editor container (gutter + textarea + pre), status bar
+
+### Frontend CSS (~50 lines)
+
+Editor-specific styles: `.settings-editor-container`, `.settings-gutter`, `.settings-highlight`, `.settings-error-line`, `.settings-error-banner`, `.settings-mismatch-banner`, `.settings-status-bar`
+
+### Frontend JS (~200 lines)
+
+- `highlightJSON(text)` — tokenizer returning highlighted HTML
 - `syncEditorScroll()` — keeps textarea/pre/gutter aligned
-- `validateJSON()` — debounced error detection
-- `saveSettings()` — save handler (button + Ctrl+S)
-- `renderEditorStatus()` — dirty/saved/error state management
-- CSS for editor components (~40 lines)
+- `validateSettingsJSON()` — debounced error detection + banner management
+- `applySettings()` — simplified apply (no tags)
+- `formatSettings()` — pretty-print
+- `resetSettings()` — reload from server with dirty confirmation
+- `renderSettingsStatus()` — status bar updates
+- `jumpToLine(lineNum)` — scroll + cursor placement
 
-## Dashboard Tests
+## Backend — Kept Unchanged
 
-### Tests to Remove (assert removed HTML elements)
-
-- `dashboard_html_settings_mismatch_callout_has_keep_actions`
-- `dashboard_html_settings_mismatch_tracks_disk_and_db_snapshots`
-- `dashboard_html_settings_keep_disk_reuses_apply_helper`
-- `dashboard_html_settings_keep_db_snapshot_is_editor_only`
-- `dashboard_html_settings_keep_disk_applies_immediately`
-- `dashboard_html_settings_mismatch_actions_are_wired`
-
-### Tests to Add (assert new editor elements)
-
-- `dashboard_html_settings_editor_has_overlay_structure` — asserts header bar, gutter, textarea, pre, footer exist
-- `dashboard_html_settings_editor_has_syntax_highlighter` — asserts `highlightJSON` function exists
-- `dashboard_html_settings_editor_has_save_shortcut` — asserts Ctrl+S handler wiring
-- `dashboard_html_settings_editor_has_error_bar` — asserts error bar element exists
-
-### Tests Unchanged (backend integration)
-
-- `settings_current_mismatch_persists_until_apply_reconciliation` — tests backend logic, not UI
-- `settings_current_file_recreated_from_db_when_file_missing` — tests backend logic, not UI
-
-## Backend
-
-**No changes.** All existing endpoints and logic remain untouched:
-- `GET /api/settings/current` — still computes mismatch fields (just not surfaced in UI)
-- `POST /api/settings/apply` — still creates backups + writes history
-- History, revision, backup tables continue to accumulate data silently
+- `GET /api/settings/current` — full mismatch detection logic stays
+- Atomic file writes
+- `settings_current` singleton table
+- Backup file creation (simplified: single `.bak` overwrite)
 
 ## Out of Scope
 
-- Code folding
-- Search/replace within editor
+- Code folding, search/replace within editor
 - Undo/redo beyond browser-native textarea behavior
-- JSON schema validation (only syntax validation)
+- JSON schema validation (syntax only)
 - Settings key autocomplete
 - Multi-file editing
+- Database schema migration
+- Changes to other dashboard tabs
