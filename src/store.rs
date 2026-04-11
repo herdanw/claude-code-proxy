@@ -1,6 +1,7 @@
 use crate::types::RequestRecord;
 use parking_lot::Mutex;
 use rusqlite::{params, Connection};
+use std::convert::TryFrom;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -9,6 +10,21 @@ pub struct Store {
 }
 
 impl Store {
+    fn normalize_fts_query(query: &str) -> Option<String> {
+        let terms: Vec<String> = query
+            .split_whitespace()
+            .map(str::trim)
+            .filter(|term| !term.is_empty())
+            .map(|term| format!("\"{}\"", term.replace('"', "\"\"")))
+            .collect();
+
+        if terms.is_empty() {
+            None
+        } else {
+            Some(terms.join(" AND "))
+        }
+    }
+
     pub fn new(path: &Path) -> Result<Self, rusqlite::Error> {
         let conn = Connection::open(path)?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
@@ -149,6 +165,11 @@ impl Store {
     }
 
     pub fn add_request(&self, req: &RequestRecord) -> Result<(), rusqlite::Error> {
+        let request_size_bytes = i64::try_from(req.request_size_bytes)
+            .map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))?;
+        let response_size_bytes = i64::try_from(req.response_size_bytes)
+            .map_err(|err| rusqlite::Error::ToSqlConversionFailure(Box::new(err)))?;
+
         let db = self.db.lock();
         db.execute(
             r#"INSERT INTO requests (
@@ -174,8 +195,8 @@ impl Store {
                 req.cache_read_tokens,
                 req.cache_creation_tokens,
                 req.thinking_tokens,
-                req.request_size_bytes as i64,
-                req.response_size_bytes as i64,
+                request_size_bytes,
+                response_size_bytes,
                 req.stall_count as i64,
                 req.stall_details_json,
                 req.error_summary,
@@ -197,7 +218,12 @@ impl Store {
     ) -> Result<(), rusqlite::Error> {
         let db = self.db.lock();
         db.execute(
-            "INSERT OR REPLACE INTO request_bodies (request_id, request_body, response_body, truncated) VALUES (?1, ?2, ?3, ?4)",
+            "INSERT INTO request_bodies (request_id, request_body, response_body, truncated)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(request_id) DO UPDATE SET
+                request_body = excluded.request_body,
+                response_body = excluded.response_body,
+                truncated = excluded.truncated",
             params![request_id, request_body, response_body, truncated as i64],
         )?;
         Ok(())
@@ -209,6 +235,10 @@ impl Store {
         limit: usize,
         offset: usize,
     ) -> Result<Vec<String>, rusqlite::Error> {
+        let Some(query) = Self::normalize_fts_query(query) else {
+            return Ok(Vec::new());
+        };
+
         let db = self.db.lock();
         let mut stmt = db.prepare(
             "SELECT request_id FROM request_bodies_fts WHERE request_bodies_fts MATCH ?1 ORDER BY rank LIMIT ?2 OFFSET ?3",
@@ -402,4 +432,109 @@ mod tests {
         let ids = store.search_request_ids("stall", 10, 0).unwrap();
         assert_eq!(ids, vec!["req-1".to_string()]);
     }
+
+    #[test]
+    fn add_request_rejects_request_size_overflow() {
+        let store = create_store();
+        let mut request = sample_request("req-overflow", "claude-opus-4-1");
+        request.request_size_bytes = u64::MAX;
+
+        let err = store.add_request(&request).unwrap_err();
+        assert!(matches!(err, rusqlite::Error::ToSqlConversionFailure(_)));
+    }
+
+    #[test]
+    fn write_bodies_replace_updates_fts_terms() {
+        let store = create_store();
+        let request = sample_request("req-replace", "claude-opus-4-1");
+        store.add_request(&request).unwrap();
+
+        store
+            .write_bodies(
+                "req-replace",
+                "first payload old_term",
+                "first response",
+                false,
+            )
+            .unwrap();
+        assert_eq!(
+            store.search_request_ids("old_term", 10, 0).unwrap(),
+            vec!["req-replace".to_string()]
+        );
+
+        store
+            .write_bodies(
+                "req-replace",
+                "second payload new_term",
+                "second response",
+                false,
+            )
+            .unwrap();
+
+        assert!(store.search_request_ids("old_term", 10, 0).unwrap().is_empty());
+        assert_eq!(
+            store.search_request_ids("new_term", 10, 0).unwrap(),
+            vec!["req-replace".to_string()]
+        );
+    }
+
+    #[test]
+    fn search_request_ids_supports_limit_and_offset_pagination() {
+        let store = create_store();
+
+        for idx in 0..4 {
+            let request_id = format!("req-page-{idx}");
+            let request = sample_request(&request_id, "claude-opus-4-1");
+            store.add_request(&request).unwrap();
+            store
+                .write_bodies(
+                    &request_id,
+                    &format!("shared pagination term {idx}"),
+                    "response",
+                    false,
+                )
+                .unwrap();
+        }
+
+        let all = store.search_request_ids("shared", 10, 0).unwrap();
+        assert_eq!(all.len(), 4);
+
+        let page = store.search_request_ids("shared", 2, 1).unwrap();
+        assert_eq!(page, all[1..3].to_vec());
+    }
+
+    #[test]
+    fn write_bodies_persists_truncated_flag() {
+        let store = create_store();
+        let request = sample_request("req-truncated", "claude-opus-4-1");
+        store.add_request(&request).unwrap();
+
+        store
+            .write_bodies("req-truncated", "request", "response", true)
+            .unwrap();
+
+        let db = store.db.lock();
+        let truncated: i64 = db
+            .query_row(
+                "SELECT truncated FROM request_bodies WHERE request_id = ?1",
+                params!["req-truncated"],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(truncated, 1);
+    }
+
+    #[test]
+    fn search_request_ids_blank_query_returns_empty() {
+        let store = create_store();
+        let request = sample_request("req-blank", "claude-opus-4-1");
+        store.add_request(&request).unwrap();
+        store
+            .write_bodies("req-blank", "some searchable body", "response", false)
+            .unwrap();
+
+        assert!(store.search_request_ids("", 10, 0).unwrap().is_empty());
+        assert!(store.search_request_ids("   \t\n", 10, 0).unwrap().is_empty());
+    }
 }
+
