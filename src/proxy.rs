@@ -214,6 +214,7 @@ async fn proxy_handler(
             let mut usage_data = UsageData::default();
             let mut stop_reason = None;
             let mut response_buffer = Vec::new();
+            let mut sse_line_buffer = String::new();
 
             while let Some(chunk_result) = stream.next().await {
                 match chunk_result {
@@ -232,8 +233,14 @@ async fn proxy_handler(
                         last_chunk_time = now;
                         total_bytes += chunk.len() as u64;
 
-                        // Extract usage and metadata from SSE data
-                        extract_sse_usage_and_metadata(&chunk, &mut usage_data, &mut stop_reason);
+                        // Extract usage and metadata from complete SSE lines only,
+                        // preserving partial lines across chunk boundaries.
+                        process_sse_text_chunk(
+                            &String::from_utf8_lossy(&chunk),
+                            &mut sse_line_buffer,
+                            &mut usage_data,
+                            &mut stop_reason,
+                        );
 
                         response_buffer.extend_from_slice(&chunk);
                         if tx.send(Ok(chunk)).await.is_err() {
@@ -378,33 +385,54 @@ fn extract_sse_usage_and_metadata(
         Err(_) => return,
     };
 
-    for line in text.lines() {
-        if !line.starts_with("data: ") {
-            continue;
+    let mut line_buffer = String::new();
+    process_sse_text_chunk(text, &mut line_buffer, usage, stop_reason);
+}
+
+fn process_sse_text_chunk(
+    chunk_text: &str,
+    line_buffer: &mut String,
+    usage: &mut UsageData,
+    stop_reason: &mut Option<String>,
+) {
+    line_buffer.push_str(chunk_text);
+
+    while let Some(newline_idx) = line_buffer.find('\n') {
+        let mut line = line_buffer[..newline_idx].to_string();
+        if line.ends_with('\r') {
+            line.pop();
+        }
+        process_sse_line(&line, usage, stop_reason);
+        line_buffer.drain(..=newline_idx);
+    }
+}
+
+fn process_sse_line(line: &str, usage: &mut UsageData, stop_reason: &mut Option<String>) {
+    if !line.starts_with("data: ") {
+        return;
+    }
+
+    if let Ok(data) = serde_json::from_str::<serde_json::Value>(&line[6..]) {
+        if let Some(u) = data.get("usage") {
+            if let Some(v) = u.get("input_tokens").and_then(|v| v.as_u64()) {
+                usage.input_tokens = Some(v);
+            }
+            if let Some(v) = u.get("output_tokens").and_then(|v| v.as_u64()) {
+                usage.output_tokens = Some(v);
+            }
+            if let Some(v) = u.get("cache_read_input_tokens").and_then(|v| v.as_u64()) {
+                usage.cache_read_tokens = Some(v);
+            }
+            if let Some(v) = u.get("cache_creation_input_tokens").and_then(|v| v.as_u64()) {
+                usage.cache_creation_tokens = Some(v);
+            }
+            if let Some(v) = u.get("thinking_tokens").and_then(|v| v.as_u64()) {
+                usage.thinking_tokens = Some(v);
+            }
         }
 
-        if let Ok(data) = serde_json::from_str::<serde_json::Value>(&line[6..]) {
-            if let Some(u) = data.get("usage") {
-                if let Some(v) = u.get("input_tokens").and_then(|v| v.as_u64()) {
-                    usage.input_tokens = Some(v);
-                }
-                if let Some(v) = u.get("output_tokens").and_then(|v| v.as_u64()) {
-                    usage.output_tokens = Some(v);
-                }
-                if let Some(v) = u.get("cache_read_input_tokens").and_then(|v| v.as_u64()) {
-                    usage.cache_read_tokens = Some(v);
-                }
-                if let Some(v) = u.get("cache_creation_input_tokens").and_then(|v| v.as_u64()) {
-                    usage.cache_creation_tokens = Some(v);
-                }
-                if let Some(v) = u.get("thinking_tokens").and_then(|v| v.as_u64()) {
-                    usage.thinking_tokens = Some(v);
-                }
-            }
-
-            if let Some(reason) = data.get("stop_reason").and_then(|v| v.as_str()) {
-                *stop_reason = Some(reason.to_string());
-            }
+        if let Some(reason) = data.get("stop_reason").and_then(|v| v.as_str()) {
+            *stop_reason = Some(reason.to_string());
         }
     }
 }
@@ -558,6 +586,24 @@ mod tests {
         extract_sse_usage_and_metadata(chunk, &mut usage, &mut stop_reason);
 
         assert_eq!(usage.thinking_tokens, Some(7));
+        assert_eq!(stop_reason.as_deref(), Some("end_turn"));
+    }
+
+    #[test]
+    fn extract_sse_usage_handles_fragmented_data_line_across_chunks() {
+        let chunk1 = "data: {\"type\":\"message_delta\",\"usage\":{\"thinking_tokens\":";
+        let chunk2 = "9},\"stop_reason\":\"end_turn\"}\n\n";
+
+        let mut usage = UsageData::default();
+        let mut stop_reason = None;
+        let mut line_buffer = String::new();
+
+        process_sse_text_chunk(chunk1, &mut line_buffer, &mut usage, &mut stop_reason);
+        assert_eq!(usage.thinking_tokens, None);
+        assert_eq!(stop_reason, None);
+
+        process_sse_text_chunk(chunk2, &mut line_buffer, &mut usage, &mut stop_reason);
+        assert_eq!(usage.thinking_tokens, Some(9));
         assert_eq!(stop_reason.as_deref(), Some("end_turn"));
     }
 
