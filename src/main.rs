@@ -1,6 +1,7 @@
 mod proxy;
 mod stats;
 mod dashboard;
+mod types;
 mod correlation;
 mod local_context;
 mod correlation_engine;
