@@ -156,6 +156,21 @@
   .filter-btn:hover { border-color: var(--text-2); }
   .filter-btn.active { border-color: var(--cyan); color: var(--cyan); background: rgba(137,220,235,0.08); }
 
+  .settings-code-line { min-height: 1.6em; }
+  .settings-error-line {
+    background: rgba(243,139,168,0.1);
+    border-left: 3px solid var(--red);
+    margin-left: -14px;
+    padding-left: 11px;
+  }
+  .settings-line-num { min-height: 1.6em; }
+  .settings-line-num-error { color: var(--red); font-weight: 700; }
+  .json-key { color: var(--blue); }
+  .json-string { color: var(--green); }
+  .json-number { color: var(--peach); }
+  .json-boolean, .json-null { color: var(--mauve); }
+  .json-punc { color: var(--text-1); }
+
   table { width: 100%; border-collapse: collapse; font-size: 12px; }
   thead th {
     text-align: left; padding: 8px 10px; color: var(--text-2); font-weight: 500;
@@ -583,46 +598,46 @@
 
   <!-- ═══ SETTINGS TAB ═══ -->
   <div class="tab-content" id="tab-settings">
-    <div class="grid grid-2" style="margin-bottom:12px">
-      <div class="card" id="settings-history-panel">
-        <div class="correlation-header" style="margin-bottom:12px;align-items:flex-start;gap:10px;flex-wrap:wrap">
-          <h3 style="font-size:12px;color:var(--text-2);text-transform:uppercase;letter-spacing:0.05em">Settings history</h3>
-          <label class="sr-only" for="settings-history-search">Search settings history</label>
-          <input id="settings-history-search" class="search-input" type="text" placeholder="Search by tag or text" style="min-width:220px;max-width:340px;font-size:12px;padding:7px 10px">
-          <button class="filter-btn" id="settings-history-clear-all-btn" type="button">Clear all history</button>
+    <div class="card" id="settings-editor-panel">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:8px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <span style="font-size:12px;color:var(--text-2);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.05em">Claude settings.json</span>
+          <span style="font-size:11px;color:var(--text-2);font-family:var(--mono)">~/.claude/settings.json</span>
+          <span id="settings-dirty-indicator" style="display:none;font-size:11px;color:var(--yellow);font-family:var(--mono)">● Unsaved changes</span>
         </div>
-        <div id="settings-history-list" style="max-height:520px;overflow:auto;color:var(--text-2);font-size:12px">Loading…</div>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <button class="filter-btn" id="settings-format-btn" type="button">Format</button>
+          <button class="filter-btn" id="settings-reset-btn" type="button">Reset</button>
+          <button class="filter-btn" id="settings-apply-btn" type="button" style="background:var(--blue);color:var(--bg-0);border-color:var(--blue);font-weight:600">Apply</button>
+        </div>
       </div>
 
-      <div class="card" id="settings-editor-panel">
-        <h3 style="font-size:12px;color:var(--text-2);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:12px">Claude settings.json</h3>
-        <div id="settings-mismatch-callout" class="card" style="display:none;margin-bottom:10px;padding:10px;background:var(--bg-2)">
-          <div style="font-size:11px;color:var(--text-2);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px">
-            settings.json mismatch detected
-          </div>
-          <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <div id="settings-mismatch-callout" style="display:none;margin-bottom:10px;padding:10px;background:rgba(250,179,135,0.1);border:1px solid var(--peach);border-radius:8px">
+        <div style="display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap">
+          <span style="font-size:11px;color:var(--peach);font-family:var(--mono)">settings.json mismatch detected</span>
+          <div style="display:flex;gap:6px;flex-wrap:wrap">
             <button class="filter-btn" id="settings-keep-disk-btn" type="button">Keep disk</button>
             <button class="filter-btn" id="settings-keep-db-snapshot-btn" type="button">Keep DB snapshot</button>
           </div>
         </div>
-        <div class="card" style="margin-bottom:10px;padding:10px;background:var(--bg-2)">
-          <div class="correlation-header" style="margin-bottom:8px;align-items:center">
-            <div style="font-size:11px;color:var(--text-2);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.05em">Selected revision preview</div>
-            <button class="filter-btn" id="settings-load-selected-btn" type="button">Load into editor</button>
-          </div>
-          <pre id="settings-history-preview-json" style="margin:0;max-height:180px;overflow:auto;white-space:pre-wrap;word-break:break-word;font-family:var(--mono);font-size:12px;color:var(--text-1)">Select a revision, then preview from list.</pre>
+      </div>
+
+      <div id="settings-error-banner" style="display:none;margin-bottom:10px;padding:10px;background:rgba(243,139,168,0.1);border:1px solid var(--red);border-radius:8px;cursor:pointer">
+        <span id="settings-error-text" style="font-size:11px;color:var(--red);font-family:var(--mono)"></span>
+      </div>
+
+      <div style="display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;min-height:420px;background:var(--bg-1)">
+        <div id="settings-line-numbers" style="width:52px;padding:12px 8px;text-align:right;background:var(--bg-2);border-right:1px solid var(--border);font-family:var(--mono);font-size:13px;line-height:1.6;color:var(--text-2);white-space:pre;user-select:none;overflow:hidden">1</div>
+        <div style="position:relative;flex:1;overflow:hidden">
+          <pre id="settings-highlight" aria-hidden="true" style="position:absolute;inset:0;margin:0;padding:12px;font-family:var(--mono);font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word;pointer-events:none;overflow:auto"></pre>
+          <label class="sr-only" for="settings-claude-json">Claude settings JSON</label>
+          <textarea id="settings-claude-json" spellcheck="false" style="position:relative;z-index:1;width:100%;height:420px;padding:12px;border:none;outline:none;resize:vertical;background:transparent;color:transparent;caret-color:var(--text-0);font-family:var(--mono);font-size:13px;line-height:1.6;white-space:pre-wrap;overflow:auto">{}</textarea>
         </div>
-        <label class="sr-only" for="settings-claude-json">Claude settings JSON</label>
-        <textarea id="settings-claude-json" class="search-input" style="width:100%;min-height:320px;font-family:var(--mono);resize:vertical" spellcheck="false" placeholder="{}"></textarea>
-        <div style="margin-top:10px">
-          <label class="sr-only" for="settings-quick-tags-input">Quick tags</label>
-          <input id="settings-quick-tags-input" class="search-input" type="text" placeholder="Quick tags (comma or space separated)" style="width:100%;font-size:12px;padding:7px 10px">
-          <div id="settings-quick-tags-hint" style="margin-top:6px;font-size:11px;color:var(--text-2);font-family:var(--mono)">These tags are attached to this revision in settings history.</div>
-        </div>
-        <div style="display:flex;align-items:center;gap:8px;margin-top:10px;flex-wrap:wrap">
-          <button class="filter-btn" id="settings-apply-btn" type="button">Apply settings</button>
-          <span id="settings-apply-status" style="font-size:11px;color:var(--text-2);font-family:var(--mono)"></span>
-        </div>
+      </div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;gap:8px;flex-wrap:wrap">
+        <span id="settings-apply-status" style="font-size:11px;color:var(--text-2);font-family:var(--mono)"></span>
+        <span id="settings-editor-meta" style="font-size:11px;color:var(--text-2);font-family:var(--mono)"></span>
       </div>
     </div>
   </div>
@@ -667,17 +682,15 @@ const EXPANDED_ANOMALY_WINDOW_MS = 600000;
 let anomalyFocusHasEmptyResults = false;
 let requestViewSnapshot = null;
 
-let settingsHistorySearchQuery = '';
-let settingsHistoryRequestToken = 0;
-let selectedSettingsHistoryId = null;
-let selectedSettingsPreviewId = null;
-const settingsHistoryById = new Map();
 const MAX_SESSION_CONVERSATION_CACHE_ITEMS = 10;
 let settingsMismatchActive = false;
 let settingsDiskLoadedSnapshot = null;
 let settingsDbSnapshotCandidate = null;
 let settingsApplyInFlight = false;
 let settingsMismatchActionTaken = false;
+let settingsValidationErrorLine = null;
+let settingsValidationMessage = '';
+let settingsValidateTimer = null;
 
 function setSessionConversationCache(sessionId, payload) {
   const key = String(sessionId);
@@ -996,7 +1009,6 @@ function setActiveTab(tabName, { persist = true } = {}) {
   }
   if (tab === 'settings') {
     loadSettingsCurrent();
-    loadSettingsHistory();
   }
   if (tab === 'overview') requestAnimationFrame(() => resizeCharts());
 }
@@ -1826,23 +1838,178 @@ async function loadSessionGraph(sessionId, targetElementId, limit = 200) {
 }
 
 /* ─── Settings ─── */
+function isSettingsEditorDirty() {
+  const editor = document.getElementById('settings-claude-json');
+  if (!editor) return false;
+  const baseline = editor.dataset.lastLoadedSnapshot;
+  if (baseline == null) return (editor.value || '').trim().length > 0;
+  try {
+    return JSON.stringify(JSON.parse(editor.value || '{}')) !== baseline;
+  } catch (_) {
+    return true;
+  }
+}
+
+function parseErrorLine(message, sourceText) {
+  if (!message) return null;
+  const lineMatch = String(message).match(/line\s+(\d+)/i);
+  if (lineMatch) return Number(lineMatch[1]);
+  const posMatch = String(message).match(/position\s+(\d+)/i);
+  if (!posMatch) return null;
+  const pos = Number(posMatch[1]);
+  if (!Number.isFinite(pos) || pos < 0) return null;
+  const prefix = sourceText.slice(0, pos);
+  return prefix.split('\n').length;
+}
+
+function highlightJsonLine(line) {
+  const escaped = esc(line);
+  const tokenRe = /"(?:\\.|[^"\\])*"(?=\s*:)|"(?:\\.|[^"\\])*"|\btrue\b|\bfalse\b|\bnull\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[{}\[\]:,]/g;
+  let last = 0;
+  let out = '';
+  let m;
+  while ((m = tokenRe.exec(escaped)) !== null) {
+    out += escaped.slice(last, m.index);
+    const token = m[0];
+    let klass = 'json-punc';
+    if (token.startsWith('"')) {
+      klass = /"\s*:$/.test(escaped.slice(m.index, m.index + token.length + 3)) ? 'json-key' : 'json-string';
+    } else if (token === 'true' || token === 'false') {
+      klass = 'json-boolean';
+    } else if (token === 'null') {
+      klass = 'json-null';
+    } else if (/^-?\d/.test(token)) {
+      klass = 'json-number';
+    }
+    out += `<span class="${klass}">${token}</span>`;
+    last = m.index + token.length;
+  }
+  out += escaped.slice(last);
+  return out;
+}
+
+function renderSettingsEditor() {
+  const editor = document.getElementById('settings-claude-json');
+  const highlight = document.getElementById('settings-highlight');
+  const lineNumbers = document.getElementById('settings-line-numbers');
+  const meta = document.getElementById('settings-editor-meta');
+  const dirty = document.getElementById('settings-dirty-indicator');
+  if (!editor || !highlight || !lineNumbers) return;
+
+  const text = editor.value || '';
+  const lines = text.split('\n');
+
+  highlight.innerHTML = lines.map((line, i) => {
+    const lineNum = i + 1;
+    const lineClass = lineNum === settingsValidationErrorLine ? 'settings-code-line settings-error-line' : 'settings-code-line';
+    return `<div class="${lineClass}">${highlightJsonLine(line) || '&nbsp;'}</div>`;
+  }).join('');
+
+  lineNumbers.innerHTML = lines.map((_, i) => {
+    const lineNum = i + 1;
+    const cls = lineNum === settingsValidationErrorLine ? 'settings-line-num settings-line-num-error' : 'settings-line-num';
+    return `<div class="${cls}">${lineNum}</div>`;
+  }).join('');
+
+  if (meta) {
+    const bytes = new TextEncoder().encode(text).length;
+    const cursor = editor.selectionStart ?? 0;
+    const before = text.slice(0, cursor);
+    const row = before.split('\n').length;
+    const col = before.length - before.lastIndexOf('\n');
+    meta.textContent = `${lines.length} lines • ${bytes} bytes • Ln ${row}, Col ${col}`;
+  }
+
+  if (dirty) dirty.style.display = isSettingsEditorDirty() ? 'inline' : 'none';
+}
+
+function syncSettingsEditorScroll() {
+  const editor = document.getElementById('settings-claude-json');
+  const highlight = document.getElementById('settings-highlight');
+  const lineNumbers = document.getElementById('settings-line-numbers');
+  if (!editor || !highlight || !lineNumbers) return;
+  highlight.scrollTop = editor.scrollTop;
+  highlight.scrollLeft = editor.scrollLeft;
+  lineNumbers.scrollTop = editor.scrollTop;
+}
+
 function renderSettingsMismatchCallout() {
   const callout = document.getElementById('settings-mismatch-callout');
   const keepDiskBtn = document.getElementById('settings-keep-disk-btn');
   const keepDbBtn = document.getElementById('settings-keep-db-snapshot-btn');
-  const status = document.getElementById('settings-apply-status');
   if (!callout) return;
-
   callout.style.display = settingsMismatchActive ? 'block' : 'none';
-
-  const hasDbCandidate = !!settingsDbSnapshotCandidate;
-  if (keepDbBtn) keepDbBtn.disabled = settingsApplyInFlight || !hasDbCandidate;
   if (keepDiskBtn) keepDiskBtn.disabled = settingsApplyInFlight;
+  if (keepDbBtn) keepDbBtn.disabled = settingsApplyInFlight || !settingsDbSnapshotCandidate;
+}
 
-  if (settingsMismatchActive && !hasDbCandidate && status) {
-    status.textContent = 'DB snapshot unavailable for mismatch resolution; Keep disk remains available';
-    status.style.color = 'var(--text-2)';
+function renderSettingsErrorBanner() {
+  const banner = document.getElementById('settings-error-banner');
+  const text = document.getElementById('settings-error-text');
+  const applyBtn = document.getElementById('settings-apply-btn');
+  if (!banner || !text || !applyBtn) return;
+  if (settingsValidationErrorLine != null) {
+    banner.style.display = 'block';
+    text.textContent = `Line ${settingsValidationErrorLine}: ${settingsValidationMessage}`;
+    applyBtn.disabled = true;
+    applyBtn.style.opacity = '0.45';
+    applyBtn.style.cursor = 'not-allowed';
+  } else {
+    banner.style.display = 'none';
+    text.textContent = '';
+    applyBtn.disabled = settingsApplyInFlight;
+    applyBtn.style.opacity = '1';
+    applyBtn.style.cursor = 'pointer';
   }
+}
+
+function validateSettingsEditorNow() {
+  const editor = document.getElementById('settings-claude-json');
+  const status = document.getElementById('settings-apply-status');
+  if (!editor) return;
+
+  const text = editor.value || '{}';
+  try {
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      settingsValidationErrorLine = 1;
+      settingsValidationMessage = 'JSON must be an object';
+    } else {
+      settingsValidationErrorLine = null;
+      settingsValidationMessage = '';
+      if (status && !settingsApplyInFlight) {
+        status.textContent = isSettingsEditorDirty() ? 'Unsaved changes' : 'Loaded current settings';
+        status.style.color = 'var(--text-2)';
+      }
+    }
+  } catch (err) {
+    settingsValidationErrorLine = parseErrorLine(err?.message || 'Invalid JSON', text) || 1;
+    settingsValidationMessage = err?.message || 'Invalid JSON';
+  }
+
+  renderSettingsEditor();
+  renderSettingsErrorBanner();
+}
+
+function scheduleSettingsValidation() {
+  if (settingsValidateTimer) clearTimeout(settingsValidateTimer);
+  settingsValidateTimer = setTimeout(() => {
+    validateSettingsEditorNow();
+  }, 300);
+}
+
+function jumpToSettingsErrorLine() {
+  const editor = document.getElementById('settings-claude-json');
+  if (!editor || settingsValidationErrorLine == null) return;
+  const targetLine = Math.max(1, settingsValidationErrorLine);
+  const lines = (editor.value || '').split('\n');
+  let idx = 0;
+  for (let i = 0; i < targetLine - 1 && i < lines.length; i++) idx += lines[i].length + 1;
+  editor.focus();
+  editor.selectionStart = idx;
+  editor.selectionEnd = idx;
+  editor.scrollTop = Math.max(0, (targetLine - 4) * 20);
+  syncSettingsEditorScroll();
 }
 
 async function loadSettingsCurrent() {
@@ -1872,7 +2039,7 @@ async function loadSettingsCurrent() {
     if (settingsMismatchActive && !settingsMismatchActionTaken) {
       editor.value = normalizedText;
       editor.dataset.lastLoadedSnapshot = normalizedBaseline;
-    } else if (editor.dataset.lastLoadedSnapshot == null) {
+    } else if (editor.dataset.lastLoadedSnapshot == null || !isSettingsEditorDirty()) {
       editor.value = normalizedText;
       editor.dataset.lastLoadedSnapshot = normalizedBaseline;
     }
@@ -1888,7 +2055,12 @@ async function loadSettingsCurrent() {
       status.style.color = 'var(--text-2)';
     }
 
+    settingsValidationErrorLine = null;
+    settingsValidationMessage = '';
     renderSettingsMismatchCallout();
+    renderSettingsEditor();
+    renderSettingsErrorBanner();
+    syncSettingsEditorScroll();
   } catch (e) {
     console.error('Failed to load current settings:', e);
     if (status) {
@@ -1900,325 +2072,8 @@ async function loadSettingsCurrent() {
   }
 }
 
-function applySettingsHistorySelectionState() {
-  document.querySelectorAll('[data-settings-history-revision-id]').forEach(button => {
-    const id = button.getAttribute('data-settings-history-revision-id');
-    const isSelected = id === selectedSettingsHistoryId;
-    const isPreview = id === selectedSettingsPreviewId;
-    button.style.border = isSelected || isPreview ? '1px solid var(--accent)' : '1px solid var(--border)';
-    button.style.background = isSelected ? 'var(--bg)' : 'var(--card-bg)';
-    button.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
-    button.setAttribute('aria-current', isPreview ? 'true' : 'false');
-  });
-}
-
-function isSettingsEditorDirty() {
-  const editor = document.getElementById('settings-claude-json');
-  if (!editor) return false;
-
-  const baseline = editor.dataset.lastLoadedSnapshot;
-  if (baseline == null) {
-    return (editor.value || '').trim().length > 0;
-  }
-
-  try {
-    const normalizedValue = JSON.stringify(JSON.parse(editor.value || '{}'));
-    return normalizedValue !== baseline;
-  } catch (_) {
-    return true;
-  }
-}
-
-function previewSettingsHistoryItem(historyId) {
-  const row = settingsHistoryById.get(String(historyId));
-  if (!row) return;
-
-  selectedSettingsPreviewId = String(historyId);
-  const status = document.getElementById('settings-apply-status');
-  const previewContent = document.getElementById('settings-history-preview-json');
-  const raw = row?.claude_settings?.raw_json;
-  const normalized = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
-  const fullJson = JSON.stringify(normalized, null, 2);
-  if (previewContent) {
-    previewContent.textContent = fullJson;
-  }
-
-  if (status) {
-    const savedAt = Number.isFinite(row?.saved_at_ms) ? new Date(row.saved_at_ms).toLocaleString() : 'unknown time';
-    status.textContent = `Previewing settings history item from ${savedAt}`;
-    status.style.color = 'var(--text-2)';
-  }
-
-  applySettingsHistorySelectionState();
-}
-
-function loadSelectedSettingsIntoEditor() {
-  const historyId = selectedSettingsPreviewId || selectedSettingsHistoryId;
-  if (!historyId) return;
-
-  const row = settingsHistoryById.get(String(historyId));
-  if (!row) return;
-
-  const editor = document.getElementById('settings-claude-json');
-  const status = document.getElementById('settings-apply-status');
-  if (!editor) return;
-
-  if (isSettingsEditorDirty() && !window.confirm('Replace editor contents with selected settings revision?')) {
-    return;
-  }
-
-  const raw = row?.claude_settings?.raw_json;
-  const normalized = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
-  editor.value = JSON.stringify(normalized, null, 2);
-  editor.dataset.lastLoadedSnapshot = JSON.stringify(normalized);
-  editor.focus();
-
-  selectedSettingsHistoryId = String(historyId);
-  selectedSettingsPreviewId = String(historyId);
-  applySettingsHistorySelectionState();
-
-  if (status) {
-    const savedAt = Number.isFinite(row?.saved_at_ms) ? new Date(row.saved_at_ms).toLocaleString() : 'unknown time';
-    status.textContent = `Loaded settings history item from ${savedAt}`;
-    status.style.color = 'var(--text-2)';
-  }
-}
-
-async function loadSettingsHistory() {
-  const list = document.getElementById('settings-history-list');
-  if (!list) return;
-  const token = ++settingsHistoryRequestToken;
-  const query = settingsHistorySearchQuery.trim();
-  const params = new URLSearchParams({ limit: '50' });
-  if (query) params.set('q', query);
-  list.innerHTML = '<div style="color:var(--text-2);font-size:12px">Loading history…</div>';
-
-  try {
-    const resp = await fetch(`/api/settings/history?${params.toString()}`);
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const payload = await resp.json();
-    if (token !== settingsHistoryRequestToken) return;
-
-    const rows = Array.isArray(payload?.data) ? payload.data : [];
-    settingsHistoryById.clear();
-    for (const row of rows) {
-      const revisionId = Number(row?.revision_id);
-      if (Number.isInteger(revisionId) && revisionId > 0) {
-        settingsHistoryById.set(String(revisionId), row);
-      }
-    }
-
-    if (!rows.length) {
-      selectedSettingsHistoryId = null;
-      selectedSettingsPreviewId = null;
-      const previewContent = document.getElementById('settings-history-preview-json');
-      if (previewContent) previewContent.textContent = 'No settings history available.';
-      list.innerHTML = query
-        ? '<div style="color:var(--text-2);font-size:12px">No settings history matches this search.</div>'
-        : '<div style="color:var(--text-2);font-size:12px">No settings history yet.</div>';
-      return;
-    }
-
-    if (!selectedSettingsHistoryId || !settingsHistoryById.has(selectedSettingsHistoryId)) {
-      const firstRevisionId = Number(rows[0]?.revision_id);
-      selectedSettingsHistoryId = Number.isInteger(firstRevisionId) && firstRevisionId > 0
-        ? String(firstRevisionId)
-        : '';
-    }
-    if (!selectedSettingsPreviewId || !settingsHistoryById.has(selectedSettingsPreviewId)) {
-      selectedSettingsPreviewId = selectedSettingsHistoryId;
-    }
-
-    list.innerHTML = rows.map(row => {
-      const revisionId = Number(row?.revision_id);
-      if (!Number.isInteger(revisionId) || revisionId <= 0) return '';
-      const revisionKey = String(revisionId);
-      const savedAt = Number.isFinite(row?.saved_at_ms) ? new Date(row.saved_at_ms).toLocaleString() : '—';
-      const outcome = String(row?.outcome || 'unknown');
-      const isSelected = revisionKey === selectedSettingsHistoryId;
-      const isPreview = revisionKey === selectedSettingsPreviewId;
-      const tags = Array.isArray(row?.tags)
-        ? row.tags
-          .filter(tag => typeof tag === 'string' && tag.trim())
-          .slice(0, 8)
-          .map(tag => `<span style="padding:2px 6px;border:1px solid var(--border);border-radius:999px;font-size:10px;color:var(--text-2);font-family:var(--mono)">${esc(tag.trim())}</span>`)
-          .join(' ')
-        : '';
-      const backupMeta = row?.backup_id ? `Backup: ${esc(row.backup_id)}` : 'Backup: —';
-
-      return `
-        <div class="correlation-item" role="button" tabindex="0" aria-pressed="${isSelected ? 'true' : 'false'}" aria-current="${isPreview ? 'true' : 'false'}" data-settings-history-revision-id="${esc(revisionKey)}" style="display:block;width:100%;text-align:left;margin-bottom:8px;border:${isSelected ? '1px solid var(--accent)' : '1px solid var(--border)'};background:${isSelected ? 'var(--bg)' : 'var(--card-bg)'};cursor:pointer">
-          <div class="correlation-header" style="align-items:flex-start;gap:8px">
-            <div class="correlation-meta" style="display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;margin:0">
-              <span>${savedAt}</span>
-              <span>Revision: ${revisionKey}</span>
-              <span>Outcome: ${esc(outcome)}</span>
-              <span>${backupMeta}</span>
-            </div>
-            <div style="display:flex;gap:6px;flex-wrap:wrap">
-              <button type="button" class="filter-btn" data-settings-history-preview-revision-id="${esc(revisionKey)}">Preview</button>
-              <button type="button" class="filter-btn" data-settings-history-delete-revision-id="${esc(revisionKey)}">Delete</button>
-            </div>
-          </div>
-          ${tags ? `<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${tags}</div>` : ''}
-        </div>
-      `;
-    }).join('');
-
-    list.querySelectorAll('[data-settings-history-revision-id]').forEach(rowEl => {
-      const selectOnly = () => {
-        const revisionId = rowEl.getAttribute('data-settings-history-revision-id');
-        if (!revisionId) return;
-        selectSettingsHistoryItem(revisionId, { focus: false });
-      };
-      const preview = () => {
-        const revisionId = rowEl.getAttribute('data-settings-history-revision-id');
-        if (!revisionId) return;
-        selectSettingsHistoryItem(revisionId, { focus: false });
-        previewSettingsHistoryItem(revisionId);
-      };
-      rowEl.addEventListener('click', selectOnly);
-      rowEl.addEventListener('dblclick', preview);
-      rowEl.addEventListener('keydown', (event) => {
-        if (event.target?.closest('[data-settings-history-delete-revision-id]') || event.target?.closest('[data-settings-history-preview-revision-id]')) {
-          return;
-        }
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          if (event.key === 'Enter') {
-            preview();
-          } else {
-            selectOnly();
-          }
-        }
-      });
-    });
-
-    list.querySelectorAll('[data-settings-history-preview-revision-id]').forEach(previewButton => {
-      const preview = (event) => {
-        event.stopPropagation();
-        const revisionId = previewButton.getAttribute('data-settings-history-preview-revision-id');
-        if (!revisionId) return;
-        selectSettingsHistoryItem(revisionId, { focus: false });
-        previewSettingsHistoryItem(revisionId);
-      };
-      previewButton.addEventListener('click', preview);
-      previewButton.addEventListener('touchend', (event) => {
-        event.preventDefault();
-        preview(event);
-      });
-    });
-
-    list.querySelectorAll('[data-settings-history-delete-revision-id]').forEach(button => {
-      button.addEventListener('click', (event) => {
-        event.stopPropagation();
-        const revisionId = button.getAttribute('data-settings-history-delete-revision-id');
-        if (!revisionId) return;
-        deleteSettingsHistoryRevision(revisionId);
-      });
-    });
-
-    if (selectedSettingsPreviewId) {
-      previewSettingsHistoryItem(selectedSettingsPreviewId);
-    }
-    applySettingsHistorySelectionState();
-  } catch (e) {
-    if (token !== settingsHistoryRequestToken) return;
-    console.error('Failed to load settings history:', e);
-    list.innerHTML = '<div style="color:var(--red);font-size:12px">Failed to load settings history.</div>';
-  }
-}
-
-function selectSettingsHistoryItem(historyId, opts = {}) {
-  const focus = opts.focus !== false;
-  const row = settingsHistoryById.get(String(historyId));
-  if (!row) return;
-
-  selectedSettingsHistoryId = String(historyId);
-  if (!selectedSettingsPreviewId) {
-    selectedSettingsPreviewId = String(historyId);
-  }
-
-  if (focus) {
-    const rowEl = document.querySelector(`[data-settings-history-revision-id="${CSS.escape(String(historyId))}"]`);
-    rowEl?.focus();
-  }
-
-  applySettingsHistorySelectionState();
-}
-
-async function refreshSettingsPanels() {
-  await Promise.all([
-    loadSettingsCurrent(),
-    loadSettingsHistory(),
-  ]);
-}
-
-function parseQuickTagsInput(value) {
-  if (typeof value !== 'string') return [];
-  const seen = new Set();
-  const tags = [];
-  value
-    .split(/[\s,]+/)
-    .map(part => part.trim())
-    .filter(Boolean)
-    .forEach(tag => {
-      const normalized = tag.toLowerCase();
-      if (seen.has(normalized)) return;
-      seen.add(normalized);
-      tags.push(tag);
-    });
-  return tags;
-}
-
-async function deleteSettingsHistoryRevision(revisionId) {
-  const parsedId = Number(revisionId);
-  if (!Number.isInteger(parsedId) || parsedId <= 0) return;
-
-  const confirmed = window.confirm('Delete this settings history revision?');
-  if (!confirmed) return;
-
-  try {
-    const resp = await fetch(`/api/settings/history/${encodeURIComponent(String(parsedId))}`, {
-      method: 'DELETE',
-    });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-
-    if (String(selectedSettingsHistoryId) === String(parsedId)) {
-      selectedSettingsHistoryId = null;
-    }
-    if (String(selectedSettingsPreviewId) === String(parsedId)) {
-      selectedSettingsPreviewId = null;
-    }
-    await loadSettingsHistory();
-  } catch (e) {
-    console.error('Failed to delete settings history revision:', e);
-  }
-}
-
-async function clearAllSettingsHistory() {
-  const confirmed = window.confirm('Delete all settings history revisions?');
-  if (!confirmed) return;
-
-  try {
-    const resp = await fetch('/api/settings/history', {
-      method: 'DELETE',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ confirm: true })
-    });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-
-    selectedSettingsHistoryId = null;
-    selectedSettingsPreviewId = null;
-    await loadSettingsHistory();
-  } catch (e) {
-    console.error('Failed to clear settings history:', e);
-  }
-}
-
 async function applySettingsPayload(parsed, { successMessage = 'Settings applied' } = {}) {
   const editor = document.getElementById('settings-claude-json');
-  const quickTagsInput = document.getElementById('settings-quick-tags-input');
   const status = document.getElementById('settings-apply-status');
   const applyBtn = document.getElementById('settings-apply-btn');
   const keepDiskBtn = document.getElementById('settings-keep-disk-btn');
@@ -2234,43 +2089,42 @@ async function applySettingsPayload(parsed, { successMessage = 'Settings applied
   applyBtn.textContent = 'Applying…';
 
   try {
-    const quickTags = parseQuickTagsInput(quickTagsInput?.value || '');
     const resp = await fetch('/api/settings/apply', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        settings: parsed,
-        quick_tags: quickTags,
-      })
+      body: JSON.stringify({ settings: parsed })
     });
 
     const body = await resp.json().catch(() => null);
     if (!resp.ok) {
       const errorNode = body?.error && typeof body.error === 'object' ? body.error : null;
-      const code = body?.error?.code || body?.code || null;
-      const details = errorNode?.details || body?.details || null;
-      const fallbackMessage = body?.message || body?.error_message || null;
-      const message = errorNode?.message || fallbackMessage || `HTTP ${resp.status}`;
-
+      const message = errorNode?.message || body?.message || body?.error_message || `HTTP ${resp.status}`;
       if (status) {
-        if (code === 'conflict') {
-          const detailSuffix = details ? ` (${JSON.stringify(details)})` : '';
-          status.textContent = `Apply conflict: ${message}${detailSuffix}`;
-        } else {
-          status.textContent = `Failed to apply settings: ${message}`;
-        }
+        status.textContent = `Failed to apply settings: ${message}`;
         status.style.color = 'var(--red)';
       }
       return false;
     }
 
     editor.dataset.lastLoadedSnapshot = JSON.stringify(parsed);
+    settingsMismatchActionTaken = false;
+    settingsMismatchActive = false;
+    settingsValidationErrorLine = null;
+    settingsValidationMessage = '';
     if (status) {
       status.textContent = successMessage;
       status.style.color = 'var(--green)';
     }
 
-    await refreshSettingsPanels();
+    renderSettingsMismatchCallout();
+    renderSettingsEditor();
+    renderSettingsErrorBanner();
+    setTimeout(() => {
+      if (status && status.textContent === successMessage) {
+        status.textContent = 'Loaded current settings';
+        status.style.color = 'var(--text-2)';
+      }
+    }, 3000);
     return true;
   } catch (e) {
     console.error('Failed to apply settings:', e);
@@ -2284,24 +2138,25 @@ async function applySettingsPayload(parsed, { successMessage = 'Settings applied
     applyBtn.disabled = false;
     applyBtn.textContent = original;
     renderSettingsMismatchCallout();
+    renderSettingsErrorBanner();
   }
 }
 
 function keepDbSnapshotInEditor() {
   if (settingsApplyInFlight) return;
-
   const editor = document.getElementById('settings-claude-json');
   const status = document.getElementById('settings-apply-status');
   if (!editor || !settingsDbSnapshotCandidate) return;
 
   editor.value = JSON.stringify(settingsDbSnapshotCandidate, null, 2);
-  editor.focus();
-
-  // Do not update lastLoadedSnapshot; keep dirty.
-  // Do not clear mismatch yet.
   settingsMismatchActionTaken = true;
   settingsMismatchActive = true;
+  settingsValidationErrorLine = null;
+  settingsValidationMessage = '';
   renderSettingsMismatchCallout();
+  renderSettingsEditor();
+  renderSettingsErrorBanner();
+  editor.focus();
 
   if (status) {
     status.textContent = 'Loaded DB snapshot into editor (not yet applied)';
@@ -2363,15 +2218,39 @@ async function applySettings() {
   await applySettingsPayload(parsed, { successMessage: 'Settings applied' });
 }
 
-function normalizeSettingsHistorySearchQuery(value) {
-  return typeof value === 'string' ? value.trim().slice(0, 120) : '';
+function formatSettingsEditor() {
+  const editor = document.getElementById('settings-claude-json');
+  const status = document.getElementById('settings-apply-status');
+  if (!editor) return;
+  try {
+    const parsed = JSON.parse(editor.value || '{}');
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('JSON must be an object');
+    }
+    editor.value = JSON.stringify(parsed, null, 2);
+    validateSettingsEditorNow();
+    if (status) {
+      status.textContent = 'Formatted JSON';
+      status.style.color = 'var(--text-2)';
+    }
+  } catch (err) {
+    settingsValidationErrorLine = parseErrorLine(err?.message || 'Invalid JSON', editor.value || '') || 1;
+    settingsValidationMessage = err?.message || 'Invalid JSON';
+    renderSettingsEditor();
+    renderSettingsErrorBanner();
+    if (status) {
+      status.textContent = 'Cannot format invalid JSON';
+      status.style.color = 'var(--red)';
+    }
+  }
 }
 
-function setSettingsHistorySearchQuery(value) {
-  const normalized = normalizeSettingsHistorySearchQuery(value);
-  if (normalized === settingsHistorySearchQuery) return;
-  settingsHistorySearchQuery = normalized;
-  loadSettingsHistory();
+async function resetSettingsEditor() {
+  if (isSettingsEditorDirty() && !window.confirm('Discard unsaved settings changes and reload from disk?')) {
+    return;
+  }
+  settingsMismatchActionTaken = false;
+  await loadSettingsCurrent();
 }
 
 /* ─── Sessions ─── */
@@ -3026,23 +2905,32 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('clear-anomaly-focus-btn').addEventListener('click', () => clearAnomalyFocus({ restoreSnapshot: true, reload: true }));
   document.getElementById('clear-memory-btn').addEventListener('click', clearMemoryStats);
   document.getElementById('clear-data-btn').addEventListener('click', clearAllData);
+  const settingsEditor = document.getElementById('settings-claude-json');
+  const settingsErrorBanner = document.getElementById('settings-error-banner');
   document.getElementById('settings-apply-btn')?.addEventListener('click', applySettings);
-  document.getElementById('settings-load-selected-btn')?.addEventListener('click', loadSelectedSettingsIntoEditor);
-  document.getElementById('settings-merge-selected-btn')?.addEventListener('click', mergeSelectedSettingsIntoEditor);
+  document.getElementById('settings-format-btn')?.addEventListener('click', formatSettingsEditor);
+  document.getElementById('settings-reset-btn')?.addEventListener('click', resetSettingsEditor);
   document.getElementById('settings-keep-disk-btn')?.addEventListener('click', keepDiskAndApplyNow);
   document.getElementById('settings-keep-db-snapshot-btn')?.addEventListener('click', keepDbSnapshotInEditor);
-  document.getElementById('settings-history-clear-all-btn')?.addEventListener('click', clearAllSettingsHistory);
-  const settingsHistorySearch = document.getElementById('settings-history-search');
-  if (settingsHistorySearch) {
-    settingsHistorySearch.value = settingsHistorySearchQuery;
-  }
-  let settingsHistorySearchTimeout;
-  settingsHistorySearch?.addEventListener('input', (e) => {
-    clearTimeout(settingsHistorySearchTimeout);
-    settingsHistorySearchTimeout = setTimeout(() => {
-      setSettingsHistorySearchQuery(e.target.value || '');
-    }, 180);
+  settingsEditor?.addEventListener('input', () => {
+    renderSettingsEditor();
+    scheduleSettingsValidation();
   });
+  settingsEditor?.addEventListener('scroll', syncSettingsEditorScroll);
+  settingsEditor?.addEventListener('click', renderSettingsEditor);
+  settingsEditor?.addEventListener('keyup', renderSettingsEditor);
+  settingsEditor?.addEventListener('keydown', (event) => {
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+      event.preventDefault();
+      applySettings();
+      return;
+    }
+    if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'f') {
+      event.preventDefault();
+      formatSettingsEditor();
+    }
+  });
+  settingsErrorBanner?.addEventListener('click', jumpToSettingsErrorLine);
   window.addEventListener('resize', resizeCharts);
   updateSortArrows();
 });

@@ -297,6 +297,7 @@ pub struct Explanation {
     pub created_at_ms: i64,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SettingsHistoryItem {
     pub id: String,
@@ -348,6 +349,7 @@ pub struct SessionDeleteDbOutcome {
 pub struct StatsStore {
     entries: RwLock<VecDeque<RequestEntry>>,
     max_entries: usize,
+    #[allow(dead_code)]
     storage_dir: PathBuf,
     db_path: PathBuf,
     db: Mutex<Connection>,
@@ -2384,6 +2386,7 @@ impl StatsStore {
         }
     }
 
+    #[allow(dead_code)]
     pub fn insert_settings_history_snapshot(&self, snapshot: &SettingsHistoryItem) -> bool {
         let conn = self.db.lock();
         if let Err(err) = conn.execute(
@@ -2411,6 +2414,7 @@ impl StatsStore {
         true
     }
 
+    #[allow(dead_code)]
     pub fn list_settings_history_desc(&self, limit: usize) -> Vec<SettingsHistoryItem> {
         let conn = self.db.lock();
         let limit = limit.min(i64::MAX as usize) as i64;
@@ -2457,6 +2461,7 @@ impl StatsStore {
         history
     }
 
+    #[allow(dead_code)]
     pub fn get_settings_history_item(&self, id: &str) -> Option<SettingsHistoryItem> {
         let conn = self.db.lock();
         conn.query_row(
@@ -2479,6 +2484,7 @@ impl StatsStore {
         .ok()
     }
 
+    #[allow(dead_code)]
     pub fn delete_settings_history_item(&self, id: &str) -> bool {
         let conn = self.db.lock();
         match conn.execute("DELETE FROM settings_history WHERE id = ?1", params![id]) {
@@ -2642,6 +2648,7 @@ impl StatsStore {
         })
     }
 
+    #[allow(dead_code)]
     pub fn clear_settings_history(&self) -> usize {
         let conn = self.db.lock();
         match conn.execute("DELETE FROM settings_history", []) {

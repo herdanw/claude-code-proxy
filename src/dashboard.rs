@@ -4,11 +4,11 @@ use crate::stats::*;
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        Path, Query, State,
+        Query, State,
     },
     http::StatusCode,
     response::{Html, IntoResponse},
-    routing::{delete, get, patch, post},
+    routing::{delete, get, post},
     Json, Router,
 };
 use std::sync::Arc;
@@ -47,28 +47,7 @@ fn build_dashboard_app(store: Arc<StatsStore>) -> Router {
         .route("/api/session-details", get(api_session_details))
         .route("/api/session", delete(api_delete_session))
         .route("/api/settings/current", get(api_settings_current))
-        .route(
-            "/api/settings/history",
-            get(api_settings_history).delete(api_settings_history_delete_all),
-        )
-        .route(
-            "/api/settings/history/:revision_id",
-            delete(api_settings_history_delete_revision),
-        )
-        .route(
-            "/api/settings/history/:revision_id/tags",
-            patch(api_settings_history_patch_tags),
-        )
-        .route("/api/settings/backups", get(api_settings_backups_legacy_gone))
         .route("/api/settings/apply", post(api_settings_apply))
-        .route(
-            "/api/settings/backups/delete-selected",
-            post(api_settings_backups_delete_selected_legacy_gone),
-        )
-        .route(
-            "/api/settings/backups/delete-all",
-            post(api_settings_backups_delete_all_legacy_gone),
-        )
         .route("/api/reset-memory", post(api_reset_memory))
         .route("/api/reset", post(api_reset))
         .route("/api/entry-body", get(api_entry_body))
@@ -217,24 +196,6 @@ struct ApiErrorBody {
     details: serde_json::Value,
 }
 
-#[derive(serde::Deserialize, Default)]
-struct SettingsHistoryQuery {
-    limit: Option<usize>,
-    offset: Option<usize>,
-    q: Option<String>,
-    search: Option<String>,
-}
-
-#[derive(serde::Deserialize, Default)]
-struct SettingsHistoryTagsPatchRequest {
-    add: Option<Vec<String>>,
-    remove: Option<Vec<String>>,
-}
-
-#[derive(serde::Deserialize, Default)]
-struct SettingsHistoryDeleteAllRequest {
-    confirm: Option<bool>,
-}
 
 fn settings_admin_error_status(code: &str) -> StatusCode {
     match code {
@@ -288,129 +249,6 @@ async fn api_settings_current(State(store): State<Arc<StatsStore>>) -> impl Into
     }
 }
 
-async fn api_settings_history(
-    State(store): State<Arc<StatsStore>>,
-    Query(q): Query<SettingsHistoryQuery>,
-) -> impl IntoResponse {
-    let admin = SettingsAdmin::new(store);
-    let limit = q.limit.unwrap_or(50).clamp(1, 200);
-    let offset = q.offset.unwrap_or(0);
-    let search = q
-        .q
-        .as_deref()
-        .or(q.search.as_deref());
-
-    match admin.get_history(limit, offset, search) {
-        Ok(history) => (
-            StatusCode::OK,
-            axum::Json(ApiSuccessEnvelope {
-                ok: true,
-                data: history,
-            }),
-        )
-            .into_response(),
-        Err(err) => settings_admin_error_response(err),
-    }
-}
-
-async fn api_settings_history_patch_tags(
-    State(store): State<Arc<StatsStore>>,
-    Path(revision_id): Path<i64>,
-    axum::Json(payload): axum::Json<SettingsHistoryTagsPatchRequest>,
-) -> impl IntoResponse {
-    let admin = SettingsAdmin::new(store);
-    let add = payload.add.unwrap_or_default();
-    let remove = payload.remove.unwrap_or_default();
-
-    match admin.patch_history_tags(revision_id, &add, &remove) {
-        Ok(history_item) => (
-            StatusCode::OK,
-            axum::Json(ApiSuccessEnvelope {
-                ok: true,
-                data: history_item,
-            }),
-        )
-            .into_response(),
-        Err(err) => settings_admin_error_response(err),
-    }
-}
-
-async fn api_settings_history_delete_revision(
-    State(store): State<Arc<StatsStore>>,
-    Path(revision_id): Path<i64>,
-) -> impl IntoResponse {
-    let admin = SettingsAdmin::new(store);
-    match admin.delete_history_revision(revision_id) {
-        Ok(()) => (
-            StatusCode::OK,
-            axum::Json(ApiSuccessEnvelope {
-                ok: true,
-                data: serde_json::json!({"deleted": true}),
-            }),
-        )
-            .into_response(),
-        Err(err) => settings_admin_error_response(err),
-    }
-}
-
-async fn api_settings_history_delete_all(
-    State(store): State<Arc<StatsStore>>,
-    axum::Json(payload): axum::Json<SettingsHistoryDeleteAllRequest>,
-) -> impl IntoResponse {
-    if payload.confirm != Some(true) {
-        return (
-            StatusCode::BAD_REQUEST,
-            axum::Json(ApiFailureEnvelope {
-                ok: false,
-                error: ApiErrorBody {
-                    code: "invalid_payload".to_string(),
-                    message: "confirm=true is required".to_string(),
-                    details: serde_json::json!({"field": "confirm"}),
-                },
-            }),
-        )
-            .into_response();
-    }
-
-    let admin = SettingsAdmin::new(store);
-    match admin.delete_history_all() {
-        Ok(deleted_count) => (
-            StatusCode::OK,
-            axum::Json(ApiSuccessEnvelope {
-                ok: true,
-                data: serde_json::json!({"deleted_count": deleted_count}),
-            }),
-        )
-            .into_response(),
-        Err(err) => settings_admin_error_response(err),
-    }
-}
-
-async fn api_settings_backups_legacy_gone() -> impl IntoResponse {
-    (
-        StatusCode::GONE,
-        axum::Json(ApiFailureEnvelope {
-            ok: false,
-            error: ApiErrorBody {
-                code: "gone".to_string(),
-                message: "settings backup endpoints have been removed; use settings history revision APIs instead".to_string(),
-                details: serde_json::json!({
-                    "replacement": "/api/settings/history",
-                    "guidance": "Use /api/settings/history for listing and /api/settings/history/:revision_id for targeted delete operations."
-                }),
-            },
-        }),
-    )
-        .into_response()
-}
-
-async fn api_settings_backups_delete_selected_legacy_gone() -> impl IntoResponse {
-    api_settings_backups_legacy_gone().await
-}
-
-async fn api_settings_backups_delete_all_legacy_gone() -> impl IntoResponse {
-    api_settings_backups_legacy_gone().await
-}
 
 async fn api_settings_apply(
     State(store): State<Arc<StatsStore>>,
@@ -892,12 +730,6 @@ mod tests {
 
 
     #[tokio::test]
-    async fn dashboard_html_declares_settings_history_index_state() {
-        let html = include_str!("dashboard.html");
-        assert!(html.contains("const settingsHistoryById = new Map();"));
-    }
-
-    #[tokio::test]
     async fn dashboard_html_select_session_caches_conversation_preview_payload() {
         let html = include_str!("dashboard.html");
         assert!(html.contains("const cacheKey = String(sessionId);"));
@@ -906,166 +738,50 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn dashboard_html_settings_tab_uses_history_left_editor_right_layout() {
+    async fn dashboard_html_settings_tab_uses_single_editor_panel() {
         let html = include_str!("dashboard.html");
-        let history_index = html
-            .find("id=\"settings-history-panel\"")
-            .expect("settings history panel exists");
-        let editor_index = html
-            .find("id=\"settings-editor-panel\"")
-            .expect("settings editor panel exists");
-        assert!(history_index < editor_index);
+        assert!(html.contains("id=\"settings-editor-panel\""));
+        assert!(!html.contains("id=\"settings-history-panel\""));
+        assert!(!html.contains("id=\"settings-history-list\""));
+        assert!(!html.contains("id=\"settings-quick-tags-input\""));
     }
 
     #[tokio::test]
-    async fn dashboard_html_settings_history_rows_include_delete_affordance() {
+    async fn dashboard_html_settings_editor_has_overlay_and_error_banner() {
         let html = include_str!("dashboard.html");
-        assert!(html.contains("data-settings-history-delete-revision-id"));
-        assert!(html.contains("data-settings-history-revision-id"));
-        assert!(html.contains("deleteSettingsHistoryRevision("));
+        assert!(html.contains("id=\"settings-highlight\""));
+        assert!(html.contains("id=\"settings-line-numbers\""));
+        assert!(html.contains("id=\"settings-error-banner\""));
+        assert!(html.contains("id=\"settings-error-text\""));
     }
 
     #[tokio::test]
-    async fn dashboard_html_settings_history_rows_avoid_nested_interactive_controls() {
+    async fn dashboard_html_settings_editor_wires_format_reset_and_apply() {
         let html = include_str!("dashboard.html");
-        assert!(!html.contains("<button type=\"button\" class=\"correlation-item\""));
-        assert!(html.contains("role=\"button\""));
-        assert!(html.contains("event.key === 'Enter' || event.key === ' '"));
+        assert!(html.contains("id=\"settings-format-btn\""));
+        assert!(html.contains("id=\"settings-reset-btn\""));
+        assert!(html.contains("id=\"settings-apply-btn\""));
+        assert!(html.contains("function formatSettingsEditor()"));
+        assert!(html.contains("function resetSettingsEditor()"));
     }
 
     #[tokio::test]
-    async fn dashboard_html_settings_history_row_key_activation_ignores_delete_button_keyboard_events() {
+    async fn dashboard_html_settings_history_endpoints_and_handlers_removed() {
         let html = include_str!("dashboard.html");
-        assert!(html.contains("event.target?.closest('[data-settings-history-delete-revision-id]')"));
-    }
-
-    #[tokio::test]
-    async fn dashboard_html_settings_history_preview_supports_double_click_touch_and_enter() {
-        let html = include_str!("dashboard.html");
-        assert!(html.contains("rowEl.addEventListener('dblclick', preview);"));
-        assert!(html.contains("data-settings-history-preview-revision-id"));
-        assert!(html.contains("previewButton.addEventListener('click'"));
-        assert!(html.contains("if (event.key === 'Enter')"));
-        assert!(html.contains("preview();"));
-    }
-
-    #[tokio::test]
-    async fn dashboard_html_settings_history_preview_uses_full_json_without_editor_overwrite() {
-        let html = include_str!("dashboard.html");
-        assert!(html.contains("const fullJson = JSON.stringify(normalized, null, 2);"));
-        assert!(html.contains("previewContent.textContent = fullJson;"));
-        assert!(html.contains("function previewSettingsHistoryItem(historyId)"));
-    }
-
-    #[tokio::test]
-    async fn dashboard_html_settings_editor_overwrite_requires_explicit_load_action() {
-        let html = include_str!("dashboard.html");
-        assert!(html.contains("id=\"settings-load-selected-btn\""));
-        assert!(html.contains("function loadSelectedSettingsIntoEditor()"));
-        assert!(html.contains("if (isSettingsEditorDirty() && !window.confirm('Replace editor contents with selected settings revision?'))"));
-        assert!(html.contains("editor.value = JSON.stringify(normalized, null, 2);"));
-        assert!(html.contains("settings-load-selected-btn')?.addEventListener('click', loadSelectedSettingsIntoEditor)"));
-    }
-
-    #[tokio::test]
-    async fn dashboard_html_settings_history_marks_preview_target_with_aria_current() {
-        let html = include_str!("dashboard.html");
-        assert!(html.contains("const isPreview = id === selectedSettingsPreviewId;"));
-        assert!(html.contains("button.setAttribute('aria-current', isPreview ? 'true' : 'false');"));
-        assert!(html.contains("aria-current=\"${isPreview ? 'true' : 'false'}\""));
-    }
-
-    #[tokio::test]
-    async fn dashboard_html_settings_editor_dirty_state_preserved_until_explicit_load() {
-        let html = include_str!("dashboard.html");
-        assert!(html.contains("function isSettingsEditorDirty()"));
-        assert!(html.contains("editor.dataset.lastLoadedSnapshot = JSON.stringify(normalized);"));
-        assert!(html.contains("} else if (editor.dataset.lastLoadedSnapshot == null) {"));
-    }
-
-    #[tokio::test]
-    async fn dashboard_html_settings_editor_includes_quick_tags_input() {
-        let html = include_str!("dashboard.html");
-        assert!(html.contains("id=\"settings-quick-tags-input\""));
-        assert!(html.contains("id=\"settings-quick-tags-hint\""));
-        assert!(html.contains("quick_tags"));
-    }
-
-    #[tokio::test]
-    async fn dashboard_html_settings_history_includes_clear_all_control() {
-        let html = include_str!("dashboard.html");
-        assert!(html.contains("id=\"settings-history-clear-all-btn\""));
-        assert!(html.contains("clearAllSettingsHistory("));
-    }
-
-    #[tokio::test]
-    async fn dashboard_html_settings_history_search_uses_unified_q_query() {
-        let html = include_str!("dashboard.html");
-        assert!(html.contains("params.set('q', query);"));
-        assert!(!html.contains("params.set('search', query);"));
-    }
-
-    #[tokio::test]
-    async fn dashboard_html_settings_removes_backup_panel_controls() {
-        let html = include_str!("dashboard.html");
-        assert!(!html.contains("id=\"settings-delete-selected-btn\""));
-        assert!(!html.contains("id=\"settings-delete-all-btn\""));
-        assert!(!html.contains("id=\"settings-backups-list\""));
-    }
-
-    #[tokio::test]
-    async fn dashboard_html_settings_mismatch_callout_has_keep_actions() {
-        let html = include_str!("dashboard.html");
-        assert!(html.contains("id=\"settings-mismatch-callout\""));
-        assert!(html.contains("id=\"settings-keep-disk-btn\""));
-        assert!(html.contains(">Keep disk<"));
-        assert!(html.contains("id=\"settings-keep-db-snapshot-btn\""));
-        assert!(html.contains(">Keep DB snapshot<"));
-    }
-
-    #[tokio::test]
-    async fn dashboard_html_settings_mismatch_tracks_disk_and_db_snapshots() {
-        let html = include_str!("dashboard.html");
-        assert!(html.contains("let settingsMismatchActive = false;"));
-        assert!(html.contains("let settingsDiskLoadedSnapshot = null;"));
-        assert!(html.contains("let settingsDbSnapshotCandidate = null;"));
-        assert!(html.contains("editor.dataset.lastLoadedSnapshot = JSON.stringify(normalized);"));
-        assert!(html.contains("settingsMismatchActive = payload?.data?.db_file_mismatch === true;"));
-    }
-
-    #[tokio::test]
-    async fn dashboard_html_settings_keep_disk_reuses_apply_helper() {
-        let html = include_str!("dashboard.html");
-        assert!(html.contains("async function applySettingsPayload("));
-        assert!(html.contains("if (settingsApplyInFlight) return false;"));
-        assert!(html.contains("const keepDiskBtn = document.getElementById('settings-keep-disk-btn');"));
-        assert!(html.contains("const code = body?.error?.code || body?.code || null;"));
-    }
-
-    #[tokio::test]
-    async fn dashboard_html_settings_keep_db_snapshot_is_editor_only() {
-        let html = include_str!("dashboard.html");
-        assert!(html.contains("function keepDbSnapshotInEditor()"));
-        assert!(html.contains("if (settingsApplyInFlight) return;"));
-        assert!(html.contains("Loaded DB snapshot into editor (not yet applied)"));
-        assert!(html.contains("// Do not update lastLoadedSnapshot; keep dirty."));
-    }
-
-    #[tokio::test]
-    async fn dashboard_html_settings_keep_disk_applies_immediately() {
-        let html = include_str!("dashboard.html");
-        assert!(html.contains("async function keepDiskAndApplyNow()"));
-        assert!(html.contains("Kept disk settings and applied"));
-        assert!(html.contains("Invalid JSON: cannot Keep disk until syntax is fixed"));
+        assert!(!html.contains("loadSettingsHistory()"));
+        assert!(!html.contains("/api/settings/history"));
+        assert!(!html.contains("quick_tags"));
+        assert!(!html.contains("function clearAllSettingsHistory()"));
     }
 
     #[tokio::test]
     async fn dashboard_html_settings_mismatch_actions_are_wired() {
         let html = include_str!("dashboard.html");
+        assert!(html.contains("id=\"settings-mismatch-callout\""));
+        assert!(html.contains("id=\"settings-keep-disk-btn\""));
+        assert!(html.contains("id=\"settings-keep-db-snapshot-btn\""));
         assert!(html.contains("settings-keep-disk-btn')?.addEventListener('click', keepDiskAndApplyNow)"));
         assert!(html.contains("settings-keep-db-snapshot-btn')?.addEventListener('click', keepDbSnapshotInEditor)"));
-        assert!(html.contains("function renderSettingsMismatchCallout()"));
-        assert!(html.contains("renderSettingsMismatchCallout();"));
     }
 
     #[tokio::test]
@@ -1885,359 +1601,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn settings_history_endpoint_uses_q_search_param() {
+    async fn settings_history_endpoints_are_removed() {
         let root = std::env::temp_dir().join(format!(
-            "claude-proxy-dashboard-settings-history-q-{}",
-            uuid::Uuid::new_v4()
-        ));
-        let storage_dir = root.join("storage");
-        let claude_dir = root.join("claude");
-        std::fs::create_dir_all(&storage_dir).unwrap();
-        std::fs::create_dir_all(&claude_dir).unwrap();
-
-        let store = Arc::new(StatsStore::new(
-            10,
-            storage_dir.clone(),
-            20.0,
-            8.0,
-            2_097_152,
-            claude_dir,
-        ));
-        let admin = SettingsAdmin::new(store.clone());
-
-        admin
-            .apply_settings(serde_json::json!({
-                "settings": {"note": "alpha beta"},
-                "quick_tags": ["release"]
-            }))
-            .unwrap();
-        admin
-            .apply_settings(serde_json::json!({
-                "settings": {"note": "other"},
-                "quick_tags": ["staging"]
-            }))
-            .unwrap();
-
-        let app = build_dashboard_app(store);
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method(Method::GET)
-                    .uri("/api/settings/history?q=%20%20RELEASE%20%20")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
-
-        assert_eq!(payload.get("ok").and_then(|v| v.as_bool()), Some(true));
-        assert_eq!(
-            payload
-                .get("data")
-                .and_then(|v| v.as_array())
-                .map(|rows| rows.len()),
-            Some(1)
-        );
-
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-
-    #[tokio::test]
-    async fn settings_history_endpoint_supports_legacy_search_param() {
-        let root = std::env::temp_dir().join(format!(
-            "claude-proxy-dashboard-settings-history-search-{}",
-            uuid::Uuid::new_v4()
-        ));
-        let storage_dir = root.join("storage");
-        let claude_dir = root.join("claude");
-        std::fs::create_dir_all(&storage_dir).unwrap();
-        std::fs::create_dir_all(&claude_dir).unwrap();
-
-        let store = Arc::new(StatsStore::new(
-            10,
-            storage_dir,
-            20.0,
-            8.0,
-            2_097_152,
-            claude_dir,
-        ));
-        let admin = SettingsAdmin::new(store.clone());
-
-        admin
-            .apply_settings(serde_json::json!({
-                "settings": {"note": "alpha beta"},
-                "quick_tags": ["release"]
-            }))
-            .unwrap();
-        admin
-            .apply_settings(serde_json::json!({
-                "settings": {"note": "other"},
-                "quick_tags": ["staging"]
-            }))
-            .unwrap();
-
-        let app = build_dashboard_app(store);
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method(Method::GET)
-                    .uri("/api/settings/history?search=%20%20RELEASE%20%20")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
-
-        assert_eq!(payload.get("ok").and_then(|v| v.as_bool()), Some(true));
-        assert_eq!(
-            payload
-                .get("data")
-                .and_then(|v| v.as_array())
-                .map(|rows| rows.len()),
-            Some(1)
-        );
-
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[tokio::test]
-    async fn settings_history_endpoint_prefers_q_over_legacy_search_when_both_present() {
-        let root = std::env::temp_dir().join(format!(
-            "claude-proxy-dashboard-settings-history-q-preferred-{}",
-            uuid::Uuid::new_v4()
-        ));
-        let storage_dir = root.join("storage");
-        let claude_dir = root.join("claude");
-        std::fs::create_dir_all(&storage_dir).unwrap();
-        std::fs::create_dir_all(&claude_dir).unwrap();
-
-        let store = Arc::new(StatsStore::new(
-            10,
-            storage_dir,
-            20.0,
-            8.0,
-            2_097_152,
-            claude_dir,
-        ));
-        let admin = SettingsAdmin::new(store.clone());
-
-        admin
-            .apply_settings(serde_json::json!({
-                "settings": {"note": "alpha beta"},
-                "quick_tags": ["release"]
-            }))
-            .unwrap();
-        admin
-            .apply_settings(serde_json::json!({
-                "settings": {"note": "other"},
-                "quick_tags": ["staging"]
-            }))
-            .unwrap();
-
-        let app = build_dashboard_app(store);
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method(Method::GET)
-                    .uri("/api/settings/history?q=staging&search=release")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
-
-        assert_eq!(payload.get("ok").and_then(|v| v.as_bool()), Some(true));
-        assert_eq!(
-            payload
-                .get("data")
-                .and_then(|v| v.as_array())
-                .map(|rows| rows.len()),
-            Some(1)
-        );
-        let tags = payload
-            .get("data")
-            .and_then(|v| v.as_array())
-            .and_then(|rows| rows.first())
-            .and_then(|row| row.get("tags"))
-            .and_then(|tags| tags.as_array())
-            .map(|tags| {
-                tags.iter()
-                    .filter_map(|v| v.as_str())
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-        assert!(tags.contains(&"staging"));
-
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[tokio::test]
-    async fn settings_history_tags_patch_missing_revision_uses_not_found_envelope() {
-        let root = std::env::temp_dir().join(format!(
-            "claude-proxy-dashboard-settings-tags-missing-{}",
-            uuid::Uuid::new_v4()
-        ));
-        let storage_dir = root.join("storage");
-        let claude_dir = root.join("claude");
-        std::fs::create_dir_all(&storage_dir).unwrap();
-        std::fs::create_dir_all(&claude_dir).unwrap();
-
-        let store = Arc::new(StatsStore::new(
-            10,
-            storage_dir,
-            20.0,
-            8.0,
-            2_097_152,
-            claude_dir,
-        ));
-        let app = build_dashboard_app(store);
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method(Method::PATCH)
-                    .uri("/api/settings/history/999999/tags")
-                    .header("content-type", "application/json")
-                    .body(Body::from(r#"{"add":["alpha"]}"#))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::NOT_FOUND);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(payload.get("ok").and_then(|v| v.as_bool()), Some(false));
-        assert_eq!(
-            payload
-                .get("error")
-                .and_then(|v| v.get("code"))
-                .and_then(|v| v.as_str()),
-            Some("not_found")
-        );
-
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[tokio::test]
-    async fn settings_history_delete_all_requires_confirm_true_payload() {
-        let root = std::env::temp_dir().join(format!(
-            "claude-proxy-dashboard-settings-history-delete-all-confirm-{}",
-            uuid::Uuid::new_v4()
-        ));
-        let storage_dir = root.join("storage");
-        let claude_dir = root.join("claude");
-        std::fs::create_dir_all(&storage_dir).unwrap();
-        std::fs::create_dir_all(&claude_dir).unwrap();
-
-        let store = Arc::new(StatsStore::new(
-            10,
-            storage_dir,
-            20.0,
-            8.0,
-            2_097_152,
-            claude_dir,
-        ));
-
-        let app = build_dashboard_app(store);
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method(Method::DELETE)
-                    .uri("/api/settings/history")
-                    .header("content-type", "application/json")
-                    .body(Body::from(r#"{}"#))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(payload.get("ok").and_then(|v| v.as_bool()), Some(false));
-        assert_eq!(
-            payload
-                .get("error")
-                .and_then(|v| v.get("code"))
-                .and_then(|v| v.as_str()),
-            Some("invalid_payload")
-        );
-        assert_eq!(
-            payload
-                .get("error")
-                .and_then(|v| v.get("message"))
-                .and_then(|v| v.as_str()),
-            Some("confirm=true is required")
-        );
-
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[tokio::test]
-    async fn settings_history_delete_all_on_empty_history_returns_zero_deleted_count() {
-        let root = std::env::temp_dir().join(format!(
-            "claude-proxy-dashboard-settings-history-delete-all-empty-{}",
-            uuid::Uuid::new_v4()
-        ));
-        let storage_dir = root.join("storage");
-        let claude_dir = root.join("claude");
-        std::fs::create_dir_all(&storage_dir).unwrap();
-        std::fs::create_dir_all(&claude_dir).unwrap();
-
-        let store = Arc::new(StatsStore::new(
-            10,
-            storage_dir,
-            20.0,
-            8.0,
-            2_097_152,
-            claude_dir,
-        ));
-
-        let app = build_dashboard_app(store);
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method(Method::DELETE)
-                    .uri("/api/settings/history")
-                    .header("content-type", "application/json")
-                    .body(Body::from(r#"{"confirm":true}"#))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(payload.get("ok").and_then(|v| v.as_bool()), Some(true));
-        assert_eq!(
-            payload
-                .get("data")
-                .and_then(|v| v.get("deleted_count"))
-                .and_then(|v| v.as_i64()),
-            Some(0)
-        );
-
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[tokio::test]
-    async fn settings_backup_endpoints_return_deterministic_410_with_guidance_payload() {
-        let root = std::env::temp_dir().join(format!(
-            "claude-proxy-dashboard-settings-backup-gone-{}",
+            "claude-proxy-dashboard-settings-history-removed-{}",
             uuid::Uuid::new_v4()
         ));
         let storage_dir = root.join("storage");
@@ -2261,185 +1627,39 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::GET)
-                    .uri("/api/settings/backups")
+                    .uri("/api/settings/history")
                     .body(Body::empty())
                     .unwrap(),
             )
             .await
             .unwrap();
-
-        assert_eq!(get_response.status(), StatusCode::GONE);
-        let get_body = axum::body::to_bytes(get_response.into_body(), usize::MAX).await.unwrap();
-        let get_payload: serde_json::Value = serde_json::from_slice(&get_body).unwrap();
-        assert_eq!(get_payload.get("ok").and_then(|v| v.as_bool()), Some(false));
-        assert_eq!(
-            get_payload
-                .get("error")
-                .and_then(|v| v.get("code"))
-                .and_then(|v| v.as_str()),
-            Some("gone")
-        );
-        assert_eq!(
-            get_payload
-                .get("error")
-                .and_then(|v| v.get("details"))
-                .and_then(|v| v.get("replacement"))
-                .and_then(|v| v.as_str()),
-            Some("/api/settings/history")
-        );
-
-        let delete_selected_response = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method(Method::POST)
-                    .uri("/api/settings/backups/delete-selected")
-                    .header("content-type", "application/json")
-                    .body(Body::from(r#"{"backup_ids":["a.json"]}"#))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(delete_selected_response.status(), StatusCode::GONE);
-
-        let delete_all_response = app
-            .oneshot(
-                Request::builder()
-                    .method(Method::POST)
-                    .uri("/api/settings/backups/delete-all")
-                    .header("content-type", "application/json")
-                    .body(Body::from(r#"{"confirm":true}"#))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(delete_all_response.status(), StatusCode::GONE);
-
-        let _ = std::fs::remove_dir_all(&root);
-    }
-    #[tokio::test]
-    async fn settings_history_endpoint_returns_numeric_revision_id() {
-        let root = std::env::temp_dir().join(format!(
-            "claude-proxy-dashboard-settings-history-revision-id-{}",
-            uuid::Uuid::new_v4()
-        ));
-        let storage_dir = root.join("storage");
-        let claude_dir = root.join("claude");
-        std::fs::create_dir_all(&storage_dir).unwrap();
-        std::fs::create_dir_all(&claude_dir).unwrap();
-
-        let store = Arc::new(StatsStore::new(
-            10,
-            storage_dir,
-            20.0,
-            8.0,
-            2_097_152,
-            claude_dir,
-        ));
-        let admin = SettingsAdmin::new(store.clone());
-        admin
-            .apply_settings(serde_json::json!({
-                "settings": {"note": "revision-id-check"},
-                "quick_tags": ["release"]
-            }))
-            .unwrap();
-
-        let app = build_dashboard_app(store);
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method(Method::GET)
-                    .uri("/api/settings/history?limit=1")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
-        let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
-
-        let first_row = payload
-            .get("data")
-            .and_then(|v| v.as_array())
-            .and_then(|rows| rows.first())
-            .expect("expected at least one history row");
-
-        let revision_id = first_row
-            .get("revision_id")
-            .and_then(|v| v.as_i64())
-            .expect("revision_id should be numeric");
-        assert!(revision_id > 0);
-
-        let _ = std::fs::remove_dir_all(&root);
-    }
-
-    #[tokio::test]
-    async fn settings_history_delete_revision_endpoint_accepts_numeric_revision_id() {
-        let root = std::env::temp_dir().join(format!(
-            "claude-proxy-dashboard-settings-history-delete-revision-id-{}",
-            uuid::Uuid::new_v4()
-        ));
-        let storage_dir = root.join("storage");
-        let claude_dir = root.join("claude");
-        std::fs::create_dir_all(&storage_dir).unwrap();
-        std::fs::create_dir_all(&claude_dir).unwrap();
-
-        let store = Arc::new(StatsStore::new(
-            10,
-            storage_dir,
-            20.0,
-            8.0,
-            2_097_152,
-            claude_dir,
-        ));
-        let admin = SettingsAdmin::new(store.clone());
-        admin
-            .apply_settings(serde_json::json!({
-                "settings": {"note": "delete-revision-id-check"}
-            }))
-            .unwrap();
-
-        let app = build_dashboard_app(store.clone());
-        let history_response = app
-            .clone()
-            .oneshot(
-                Request::builder()
-                    .method(Method::GET)
-                    .uri("/api/settings/history?limit=1")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(history_response.status(), StatusCode::OK);
-        let history_body = axum::body::to_bytes(history_response.into_body(), usize::MAX).await.unwrap();
-        let history_payload: serde_json::Value = serde_json::from_slice(&history_body).unwrap();
-        let revision_id = history_payload
-            .get("data")
-            .and_then(|v| v.as_array())
-            .and_then(|rows| rows.first())
-            .and_then(|row| row.get("revision_id"))
-            .and_then(|v| v.as_i64())
-            .expect("expected numeric revision_id");
+        assert_eq!(get_response.status(), StatusCode::NOT_FOUND);
 
         let delete_response = app
+            .clone()
             .oneshot(
                 Request::builder()
                     .method(Method::DELETE)
-                    .uri(format!("/api/settings/history/{revision_id}"))
+                    .uri("/api/settings/history")
                     .body(Body::empty())
                     .unwrap(),
             )
             .await
             .unwrap();
+        assert_eq!(delete_response.status(), StatusCode::NOT_FOUND);
 
-        assert_eq!(delete_response.status(), StatusCode::OK);
-        let delete_body = axum::body::to_bytes(delete_response.into_body(), usize::MAX).await.unwrap();
-        let delete_payload: serde_json::Value = serde_json::from_slice(&delete_body).unwrap();
-        assert_eq!(delete_payload.get("ok").and_then(|v| v.as_bool()), Some(true));
+        let patch_response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::PATCH)
+                    .uri("/api/settings/history/1/tags")
+                    .header("content-type", "application/json")
+                    .body(Body::from(r#"{"add":["alpha"]}"#))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(patch_response.status(), StatusCode::NOT_FOUND);
 
         let _ = std::fs::remove_dir_all(&root);
     }

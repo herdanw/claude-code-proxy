@@ -45,6 +45,7 @@ pub struct SettingsCurrentResponse {
     pub file_recreated_from_db: bool,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SettingsHistoryRecord {
     pub revision_id: i64,
@@ -76,6 +77,7 @@ pub struct SettingsAdminError {
 pub struct SettingsAdmin {
     db_path: PathBuf,
     claude_dir: PathBuf,
+    #[allow(dead_code)]
     history_source: SettingsHistorySource,
     #[cfg(test)]
     fail_primary_db_write_once: AtomicBool,
@@ -187,6 +189,7 @@ impl SettingsAdmin {
     }
 
 
+    #[allow(dead_code)]
     pub fn get_history(
         &self,
         limit: usize,
@@ -199,6 +202,7 @@ impl SettingsAdmin {
         }
     }
 
+    #[allow(dead_code)]
     fn get_history_from_revision(
         &self,
         limit: usize,
@@ -298,6 +302,7 @@ impl SettingsAdmin {
         self.filter_and_paginate_history(history, limit, offset, search)
     }
 
+    #[allow(dead_code)]
     fn get_history_from_legacy(
         &self,
         limit: usize,
@@ -436,6 +441,7 @@ impl SettingsAdmin {
         self.filter_and_paginate_history(history, limit, offset, search)
     }
 
+    #[allow(dead_code)]
     fn filter_and_paginate_history(
         &self,
         mut history: Vec<SettingsHistoryRecord>,
@@ -474,6 +480,7 @@ impl SettingsAdmin {
         Ok(history.into_iter().skip(offset).take(limit).collect())
     }
 
+    #[allow(dead_code)]
     pub fn patch_history_tags(
         &self,
         revision_id: i64,
@@ -639,101 +646,7 @@ impl SettingsAdmin {
             })
     }
 
-    pub fn delete_history_revision(&self, revision_id: i64) -> Result<(), SettingsAdminError> {
-        if revision_id <= 0 {
-            return Err(SettingsAdminError {
-                code: "not_found".to_string(),
-                message: "settings revision not found".to_string(),
-            });
-        }
-
-        let mut conn = self.open_db()?;
-        self.ensure_schema(&conn)?;
-
-        let tx = conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|err| SettingsAdminError {
-                code: "db_write_failed".to_string(),
-                message: format!("failed to open history delete transaction: {err}"),
-            })?;
-
-        let legacy_id: Option<String> = tx
-            .query_row(
-                "SELECT legacy_id FROM settings_revision WHERE id = ?1",
-                params![revision_id],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(|err| SettingsAdminError {
-                code: "db_read_failed".to_string(),
-                message: format!("failed to load settings revision before delete: {err}"),
-            })?;
-
-        let Some(legacy_id) = legacy_id else {
-            return Err(SettingsAdminError {
-                code: "not_found".to_string(),
-                message: "settings revision not found".to_string(),
-            });
-        };
-
-        tx.execute(
-            "DELETE FROM settings_revision WHERE id = ?1",
-            params![revision_id],
-        )
-        .map_err(|err| SettingsAdminError {
-            code: "db_write_failed".to_string(),
-            message: format!("failed to delete settings revision: {err}"),
-        })?;
-
-        tx.execute(
-            "DELETE FROM settings_history WHERE id = ?1",
-            params![legacy_id],
-        )
-        .map_err(|err| SettingsAdminError {
-            code: "db_write_failed".to_string(),
-            message: format!("failed to delete settings history row: {err}"),
-        })?;
-
-        tx.commit().map_err(|err| SettingsAdminError {
-            code: "db_write_failed".to_string(),
-            message: format!("failed to commit settings revision delete: {err}"),
-        })?;
-
-        Ok(())
-    }
-
-    pub fn delete_history_all(&self) -> Result<usize, SettingsAdminError> {
-        let mut conn = self.open_db()?;
-        self.ensure_schema(&conn)?;
-
-        let tx = conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|err| SettingsAdminError {
-                code: "db_write_failed".to_string(),
-                message: format!("failed to open history clear transaction: {err}"),
-            })?;
-
-        let deleted_count = tx
-            .execute("DELETE FROM settings_revision", [])
-            .map_err(|err| SettingsAdminError {
-                code: "db_write_failed".to_string(),
-                message: format!("failed to clear settings revisions: {err}"),
-            })?;
-
-        tx.execute("DELETE FROM settings_history", [])
-            .map_err(|err| SettingsAdminError {
-                code: "db_write_failed".to_string(),
-                message: format!("failed to clear settings history rows: {err}"),
-            })?;
-
-        tx.commit().map_err(|err| SettingsAdminError {
-            code: "db_write_failed".to_string(),
-            message: format!("failed to commit settings history clear: {err}"),
-        })?;
-
-        Ok(deleted_count)
-    }
-
+    #[allow(dead_code)]
     fn get_history_by_revision_id(
         &self,
         revision_id: i64,
@@ -901,7 +814,7 @@ impl SettingsAdmin {
         &self,
         payload: Value,
     ) -> Result<SettingsCurrentResponse, SettingsAdminError> {
-        let (effective_settings, quick_tags) = split_apply_payload(payload)?;
+        let effective_settings = split_apply_payload(payload)?;
 
         fs::create_dir_all(&self.claude_dir).map_err(|err| SettingsAdminError {
             code: "settings_write_failed".to_string(),
@@ -909,7 +822,7 @@ impl SettingsAdmin {
         })?;
 
         let now_ms = Utc::now().timestamp_millis();
-        let backup_id = self.create_backup_if_present(now_ms)?;
+        self.create_backup_if_present(now_ms)?;
 
         let serialized = serde_json::to_string_pretty(&effective_settings).map_err(|err| SettingsAdminError {
             code: "invalid_payload".to_string(),
@@ -932,60 +845,21 @@ impl SettingsAdmin {
             message: format!("failed to serialize claude settings snapshot: {err}"),
         })?;
 
-        let settings_json_text = claude_json_text.clone();
-        let content_hash = stable_content_hash(&settings_json_text);
-        let mut deduped_tags = std::collections::BTreeSet::new();
-        for tag in derive_settings_tags(&claude_json) {
-            if let Some(normalized) = canonicalize_tag(&tag) {
-                deduped_tags.insert(normalized);
-            }
-        }
-        for tag in quick_tags {
-            if let Some(normalized) = canonicalize_tag(&tag) {
-                deduped_tags.insert(normalized);
-            }
-        }
-        let tags: Vec<String> = deduped_tags.iter().cloned().collect();
-        let tags_json_text = serde_json::to_string(&tags).map_err(|err| SettingsAdminError {
-            code: "invalid_payload".to_string(),
-            message: format!("failed to serialize settings tags: {err}"),
-        })?;
-
         let mut conn = self.open_db()?;
         self.ensure_schema(&conn)?;
 
-        let history_source = self.history_source;
         let write_outcome: Result<(), String> = if self.should_fail_primary_db_write_for_test() {
             Err("simulated primary db write failure".to_string())
         } else {
             self.persist_settings_snapshot(
                 &mut conn,
-                history_source,
                 now_ms,
-                backup_id.as_deref(),
-                &tags_json_text,
                 &proxy_json_text,
                 &claude_json_text,
-                &content_hash,
-                &settings_json_text,
-                &tags,
             )
         };
 
-
         if let Err(primary_err) = write_outcome {
-            let _ = self.append_failure_history_row(
-                &conn,
-                now_ms,
-                backup_id.as_deref(),
-                &tags_json_text,
-                &proxy_json_text,
-                &claude_json_text,
-                &content_hash,
-                &settings_json_text,
-                &primary_err,
-            );
-
             return Err(SettingsAdminError {
                 code: "db_write_failed".to_string(),
                 message: format!(
@@ -1007,6 +881,7 @@ impl SettingsAdmin {
         })
     }
 
+    #[allow(dead_code)]
     pub fn delete_backups_selected(&self, ids: &[String]) -> Result<usize, SettingsAdminError> {
         let backup_dir = self.backup_dir();
         if !backup_dir.exists() {
@@ -1052,6 +927,7 @@ impl SettingsAdmin {
     }
 
 
+    #[allow(dead_code)]
     pub fn delete_backups_all(&self) -> Result<usize, SettingsAdminError> {
         let backup_dir = self.backup_dir();
         if !backup_dir.exists() {
@@ -1105,15 +981,9 @@ impl SettingsAdmin {
     fn persist_settings_snapshot(
         &self,
         conn: &mut Connection,
-        history_source: SettingsHistorySource,
         now_ms: i64,
-        backup_id: Option<&str>,
-        tags_json_text: &str,
         proxy_json_text: &str,
         claude_json_text: &str,
-        content_hash: &str,
-        settings_json_text: &str,
-        tags: &[String],
     ) -> Result<(), String> {
         let tx = conn
             .transaction_with_behavior(TransactionBehavior::Immediate)
@@ -1135,75 +1005,6 @@ impl SettingsAdmin {
             params![now_ms, proxy_json_text, claude_json_text],
         )
         .map_err(|err| format!("failed to upsert settings_current: {err}"))?;
-
-        match history_source {
-            SettingsHistorySource::Legacy => {
-                let legacy_id = uuid::Uuid::new_v4().to_string();
-                tx.execute(
-                    "
-                    INSERT INTO settings_history (
-                        id,
-                        saved_at_ms,
-                        outcome,
-                        error_message,
-                        backup_id,
-                        tags_json,
-                        proxy_settings_json,
-                        claude_settings_json,
-                        content_hash,
-                        settings_json,
-                        source
-                    ) VALUES (?1, ?2, 'success', NULL, ?3, ?4, ?5, ?6, ?7, ?8, 'settings_admin')
-                    ",
-                    params![
-                        &legacy_id,
-                        now_ms,
-                        backup_id,
-                        tags_json_text,
-                        proxy_json_text,
-                        claude_json_text,
-                        content_hash,
-                        settings_json_text,
-                    ],
-                )
-                .map_err(|err| format!("failed to append legacy history row: {err}"))?;
-            }
-            SettingsHistorySource::Revision => {
-                let revision_legacy_id = uuid::Uuid::new_v4().to_string();
-                tx.execute(
-                    "
-                    INSERT INTO settings_revision (
-                        legacy_id,
-                        created_at_ms,
-                        outcome,
-                        error_message,
-                        settings_json
-                    ) VALUES (?1, ?2, 'success', NULL, ?3)
-                    ",
-                    params![&revision_legacy_id, now_ms, settings_json_text],
-                )
-                .map_err(|err| format!("failed to append settings revision row: {err}"))?;
-
-                let revision_id: i64 = tx
-                    .query_row(
-                        "SELECT id FROM settings_revision WHERE legacy_id = ?1",
-                        params![&revision_legacy_id],
-                        |row| row.get(0),
-                    )
-                    .map_err(|err| format!("failed to load settings revision id: {err}"))?;
-
-                for tag in tags {
-                    tx.execute(
-                        "
-                        INSERT OR IGNORE INTO settings_revision_tags(revision_id, tag)
-                        VALUES (?1, ?2)
-                        ",
-                        params![revision_id, tag],
-                    )
-                    .map_err(|err| format!("failed to append settings revision tags: {err}"))?;
-                }
-            }
-        }
 
         tx.commit()
             .map_err(|err| format!("failed to commit settings transaction: {err}"))
@@ -1370,6 +1171,7 @@ impl SettingsAdmin {
         Ok(())
     }
 
+    #[allow(dead_code)]
     fn ensure_safe_backup_id(&self, backup_id: &str) -> Result<(), SettingsAdminError> {
         if backup_id.trim().is_empty() {
             return Err(SettingsAdminError {
@@ -1800,107 +1602,9 @@ impl SettingsAdmin {
         Ok(())
     }
 
-    fn append_failure_history_row(
-        &self,
-        conn: &Connection,
-        saved_at_ms: i64,
-        backup_id: Option<&str>,
-        tags_json: &str,
-        proxy_settings_json: &str,
-        claude_settings_json: &str,
-        content_hash: &str,
-        settings_json_text: &str,
-        error_message: &str,
-    ) -> Result<(), SettingsAdminError> {
-        let legacy_id = uuid::Uuid::new_v4().to_string();
-
-        conn.execute(
-            "
-            INSERT INTO settings_history (
-                id,
-                saved_at_ms,
-                outcome,
-                error_message,
-                backup_id,
-                tags_json,
-                proxy_settings_json,
-                claude_settings_json,
-                content_hash,
-                settings_json,
-                source
-            ) VALUES (?1, ?2, 'failure', ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'settings_admin')
-            ",
-            params![
-                &legacy_id,
-                saved_at_ms,
-                error_message,
-                backup_id,
-                tags_json,
-                proxy_settings_json,
-                claude_settings_json,
-                content_hash,
-                settings_json_text,
-            ],
-        )
-        .map_err(|err| SettingsAdminError {
-            code: "db_write_failed".to_string(),
-            message: format!("failed to append failure history row: {err}"),
-        })?;
-
-        conn.execute(
-            "
-            INSERT INTO settings_revision (
-                legacy_id,
-                created_at_ms,
-                outcome,
-                error_message,
-                settings_json
-            ) VALUES (?1, ?2, 'failure', ?3, ?4)
-            ",
-            params![&legacy_id, saved_at_ms, error_message, settings_json_text],
-        )
-        .map_err(|err| SettingsAdminError {
-            code: "db_write_failed".to_string(),
-            message: format!("failed to append failure revision row: {err}"),
-        })?;
-
-        let revision_id: i64 = conn
-            .query_row(
-                "SELECT id FROM settings_revision WHERE legacy_id = ?1",
-                params![&legacy_id],
-                |row| row.get(0),
-            )
-            .map_err(|err| SettingsAdminError {
-                code: "db_write_failed".to_string(),
-                message: format!("failed to load failure revision id: {err}"),
-            })?;
-
-        let mut deduped_tags = std::collections::BTreeSet::new();
-        for tag in parse_tags_json(tags_json) {
-            if let Some(normalized) = canonicalize_tag(&tag) {
-                deduped_tags.insert(normalized);
-            }
-        }
-
-        for tag in deduped_tags {
-            conn.execute(
-                "
-                INSERT OR IGNORE INTO settings_revision_tags(revision_id, tag)
-                VALUES (?1, ?2)
-                ",
-                params![revision_id, tag],
-            )
-            .map_err(|err| SettingsAdminError {
-                code: "db_write_failed".to_string(),
-                message: format!("failed to append failure revision tag: {err}"),
-            })?;
-        }
-
-        Ok(())
-    }
 }
 
-fn split_apply_payload(payload: Value) -> Result<(Value, Vec<String>), SettingsAdminError> {
+fn split_apply_payload(payload: Value) -> Result<Value, SettingsAdminError> {
     let Value::Object(mut root) = payload else {
         return Err(SettingsAdminError {
             code: "invalid_payload".to_string(),
@@ -1909,29 +1613,6 @@ fn split_apply_payload(payload: Value) -> Result<(Value, Vec<String>), SettingsA
     };
 
     if let Some(settings_value) = root.remove("settings") {
-        let quick_tags = match root.remove("quick_tags") {
-            None => Vec::new(),
-            Some(Value::Array(items)) => {
-                let mut tags = Vec::with_capacity(items.len());
-                for item in items {
-                    let Some(tag) = item.as_str() else {
-                        return Err(SettingsAdminError {
-                            code: "invalid_payload".to_string(),
-                            message: "quick_tags must be an array of strings".to_string(),
-                        });
-                    };
-                    tags.push(tag.to_string());
-                }
-                tags
-            }
-            Some(_) => {
-                return Err(SettingsAdminError {
-                    code: "invalid_payload".to_string(),
-                    message: "quick_tags must be an array of strings".to_string(),
-                })
-            }
-        };
-
         if !root.is_empty() {
             return Err(SettingsAdminError {
                 code: "invalid_payload".to_string(),
@@ -1947,21 +1628,12 @@ fn split_apply_payload(payload: Value) -> Result<(Value, Vec<String>), SettingsA
             });
         };
 
-        return Ok((Value::Object(settings), quick_tags));
+        return Ok(Value::Object(settings));
     }
 
-    Ok((Value::Object(root), Vec::new()))
+    Ok(Value::Object(root))
 }
 
-
-fn stable_content_hash(value: &str) -> String {
-    let mut hash: u64 = 0xcbf29ce484222325;
-    for byte in value.as_bytes() {
-        hash ^= u64::from(*byte);
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
-    format!("{hash:016x}")
-}
 
 fn parse_tags_json(tags_json: &str) -> Vec<String> {
     let parsed = match serde_json::from_str::<Value>(tags_json) {
@@ -1981,6 +1653,7 @@ fn parse_tags_json(tags_json: &str) -> Vec<String> {
 }
 
 
+#[allow(dead_code)]
 fn normalize_search_text(value: impl AsRef<str>) -> String {
     value
         .as_ref()
@@ -2021,12 +1694,14 @@ fn canonicalize_tag(value: &str) -> Option<String> {
     }
 }
 
+#[allow(dead_code)]
 fn add_tag(tags: &mut std::collections::BTreeSet<String>, value: impl AsRef<str>) {
     if let Some(tag) = canonicalize_tag(value.as_ref()) {
         tags.insert(tag);
     }
 }
 
+#[allow(dead_code)]
 fn derive_settings_tags(settings: &Value) -> Vec<String> {
     let mut tags = std::collections::BTreeSet::<String>::new();
 
@@ -2088,30 +1763,7 @@ mod tests {
     use serde_json::{json, Value};
     use std::fs;
     use std::path::{Path, PathBuf};
-    use std::sync::{Arc, Mutex};
-
-    static SETTINGS_HISTORY_SOURCE_TEST_MUTEX: Mutex<()> = Mutex::new(());
-
-    fn with_settings_history_source<T>(value: Option<&str>, action: impl FnOnce() -> T) -> T {
-        let _guard = SETTINGS_HISTORY_SOURCE_TEST_MUTEX
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let previous = std::env::var("SETTINGS_HISTORY_SOURCE").ok();
-
-        match value {
-            Some(source) => unsafe { std::env::set_var("SETTINGS_HISTORY_SOURCE", source) },
-            None => unsafe { std::env::remove_var("SETTINGS_HISTORY_SOURCE") },
-        }
-
-        let result = action();
-
-        match previous {
-            Some(source) => unsafe { std::env::set_var("SETTINGS_HISTORY_SOURCE", source) },
-            None => unsafe { std::env::remove_var("SETTINGS_HISTORY_SOURCE") },
-        }
-
-        result
-    }
+    use std::sync::Arc;
     fn make_test_paths(name: &str) -> (PathBuf, PathBuf) {
         let root = std::env::temp_dir().join(format!(
             "claude-proxy-settings-admin-{name}-{}",
@@ -2205,68 +1857,58 @@ mod tests {
     }
 
     #[test]
-    fn apply_settings_creates_exactly_one_revision_row() {
-        let (storage_dir, claude_dir) = make_test_paths("apply-revision-row");
+    fn apply_settings_does_not_create_revision_rows() {
+        let (storage_dir, claude_dir) = make_test_paths("apply-no-revision-row");
         let admin = make_admin(storage_dir.clone(), claude_dir);
 
         admin
-            .apply_settings(json!({"model": "claude-opus-4.6", "max_tokens": 256}))
+            .apply_settings(json!({"settings": {"model": "claude-opus-4.6", "max_tokens": 256}}))
             .unwrap();
 
         let conn = Connection::open(storage_dir.join("proxy.db")).unwrap();
         let revision_count: i64 = conn
             .query_row("SELECT COUNT(*) FROM settings_revision", [], |row| row.get(0))
             .unwrap();
-
-        assert_eq!(revision_count, 1);
-    }
-
-    #[test]
-    fn apply_settings_normalizes_quick_tags_into_revision_tags() {
-        let (storage_dir, claude_dir) = make_test_paths("apply-quick-tags");
-        let admin = make_admin(storage_dir.clone(), claude_dir);
-
-        admin
-            .apply_settings(json!({
-                "settings": {"model": "claude-opus-4.6"},
-                "quick_tags": [" Alpha ", "BETA_TAG", "beta.tag", "", "###"]
-            }))
+        let revision_tag_count: i64 = conn
+            .query_row("SELECT COUNT(*) FROM settings_revision_tags", [], |row| row.get(0))
             .unwrap();
 
-        let conn = Connection::open(storage_dir.join("proxy.db")).unwrap();
-        let tags: Vec<String> = conn
-            .prepare(
-                "
-                SELECT tag
-                FROM settings_revision_tags
-                WHERE revision_id = (SELECT id FROM settings_revision ORDER BY id DESC LIMIT 1)
-                ORDER BY tag ASC
-                ",
-            )
-            .unwrap()
-            .query_map([], |row| row.get(0))
-            .unwrap()
-            .map(Result::unwrap)
-            .collect();
-
-        assert!(tags.contains(&"alpha".to_string()));
-        assert!(tags.contains(&"beta-tag".to_string()));
+        assert_eq!(revision_count, 0);
+        assert_eq!(revision_tag_count, 0);
     }
 
     #[test]
-    fn apply_settings_rejects_quick_tags_with_non_string_items() {
-        let (storage_dir, claude_dir) = make_test_paths("apply-quick-tags-invalid-items");
+    fn apply_settings_rejects_settings_wrapper_with_additional_root_fields() {
+        let (storage_dir, claude_dir) = make_test_paths("apply-wrapper-extra-root");
         let admin = make_admin(storage_dir, claude_dir);
 
         let err = admin
             .apply_settings(json!({
-                "settings": {"theme": "dark"},
-                "quick_tags": ["valid", 42, "also-valid"]
+                "settings": {"model": "claude-opus-4.6"},
+                "quick_tags": ["release"]
             }))
-            .expect_err("non-string quick_tags entries must be rejected");
+            .expect_err("settings wrapper with extra root fields must be rejected");
 
         assert_eq!(err.code, "invalid_payload");
-        assert!(err.message.contains("quick_tags must be an array of strings"));
+        assert!(
+            err.message
+                .contains("settings wrapper cannot be combined with additional root fields")
+        );
+    }
+
+    #[test]
+    fn apply_settings_rejects_non_object_settings_wrapper() {
+        let (storage_dir, claude_dir) = make_test_paths("apply-non-object-settings-wrapper");
+        let admin = make_admin(storage_dir, claude_dir);
+
+        let err = admin
+            .apply_settings(json!({
+                "settings": ["not", "an", "object"]
+            }))
+            .expect_err("non-object settings wrapper must be rejected");
+
+        assert_eq!(err.code, "invalid_payload");
+        assert!(err.message.contains("settings must be a JSON object when provided"));
     }
 
     #[test]
@@ -2287,43 +1929,13 @@ mod tests {
     }
 
     #[test]
-    fn apply_settings_deduplicates_duplicate_quick_tags_idempotently() {
-        let (storage_dir, claude_dir) = make_test_paths("apply-quick-tag-dupes");
-        let admin = make_admin(storage_dir.clone(), claude_dir);
-
-        admin
-            .apply_settings(json!({
-                "settings": {"theme": "dark"},
-                "quick_tags": ["alpha", "ALPHA", "alpha", "alpha__", "alpha---"]
-            }))
-            .unwrap();
-
-        let conn = Connection::open(storage_dir.join("proxy.db")).unwrap();
-        let alpha_count: i64 = conn
-            .query_row(
-                "
-                SELECT COUNT(*)
-                FROM settings_revision_tags
-                WHERE revision_id = (SELECT id FROM settings_revision ORDER BY id DESC LIMIT 1)
-                  AND tag = 'alpha'
-                ",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-
-        assert_eq!(alpha_count, 1);
-    }
-
-    #[test]
-    fn apply_settings_with_quick_tags_keeps_current_snapshot_behavior() {
-        let (storage_dir, claude_dir) = make_test_paths("apply-quick-tags-current");
+    fn apply_settings_with_settings_wrapper_keeps_current_snapshot_behavior() {
+        let (storage_dir, claude_dir) = make_test_paths("apply-settings-wrapper-current");
         let admin = make_admin(storage_dir, claude_dir);
 
         admin
             .apply_settings(json!({
-                "settings": {"model": "claude-opus-4.6", "max_tokens": 333},
-                "quick_tags": ["release"]
+                "settings": {"model": "claude-opus-4.6", "max_tokens": 333}
             }))
             .unwrap();
 
@@ -2333,6 +1945,7 @@ mod tests {
             json!({"model": "claude-opus-4.6", "max_tokens": 333})
         );
     }
+
 
     #[test]
     fn load_current_from_settings_file_avoids_precheck_exists_race() {
@@ -2376,22 +1989,20 @@ mod tests {
     }
 
     #[test]
-    fn history_is_append_only_across_multiple_applies() {
-        let (storage_dir, claude_dir) = make_test_paths("append-history");
+    fn apply_settings_no_longer_appends_history_rows() {
+        let (storage_dir, claude_dir) = make_test_paths("append-history-none");
         let admin = make_admin(storage_dir, claude_dir);
 
         admin.apply_settings(json!({"value": 1})).unwrap();
         admin.apply_settings(json!({"value": 2})).unwrap();
 
         let history = admin.get_history(10, 0, None).unwrap();
-        assert_eq!(history.len(), 2);
-        assert_eq!(history[0].outcome, "success");
-        assert_eq!(history[1].outcome, "success");
+        assert!(history.is_empty());
     }
 
     #[test]
-    fn failure_path_preserves_backup_and_appends_failure_history_row() {
-        let (storage_dir, claude_dir) = make_test_paths("failure-history");
+    fn failure_path_preserves_backup_without_appending_history_row() {
+        let (storage_dir, claude_dir) = make_test_paths("failure-history-none");
         let settings_path = claude_dir.join("settings.json");
         fs::write(&settings_path, "{\"initial\":true}").unwrap();
 
@@ -2407,8 +2018,7 @@ mod tests {
         assert_eq!(backups.len(), 1);
 
         let history = admin.get_history(10, 0, None).unwrap();
-        assert_eq!(history.len(), 1);
-        assert_eq!(history[0].outcome, "failure");
+        assert!(history.is_empty());
     }
 
     #[test]
@@ -2704,88 +2314,6 @@ mod tests {
     }
 
     #[test]
-    fn history_search_is_case_insensitive_whitespace_normalized_and_tag_or_text_or() {
-        let (storage_dir, claude_dir) = make_test_paths("history-search-task3");
-        let admin = make_admin(storage_dir, claude_dir);
-
-        admin
-            .apply_settings(json!({
-                "settings": {"note": "Alpha    Beta"},
-                "quick_tags": ["release-candidate"]
-            }))
-            .unwrap();
-        admin
-            .apply_settings(json!({
-                "settings": {"note": "other payload"},
-                "quick_tags": ["staging"]
-            }))
-            .unwrap();
-
-        let by_tag = admin.get_history(50, 0, Some("   RELEASE-candidate   ")).unwrap();
-        assert_eq!(by_tag.len(), 1);
-
-        let by_text = admin.get_history(50, 0, Some(" alpha   beta ")).unwrap();
-        assert_eq!(by_text.len(), 1);
-
-        let by_missing = admin.get_history(50, 0, Some("definitely-missing")).unwrap();
-        assert!(by_missing.is_empty());
-    }
-
-    #[test]
-    fn history_tags_patch_supports_add_remove_and_remove_missing_is_noop() {
-        with_settings_history_source(None, || {
-            let (storage_dir, claude_dir) = make_test_paths("history-tags-patch-task3");
-            let admin = make_admin(storage_dir.clone(), claude_dir);
-
-            admin
-                .apply_settings(json!({
-                    "settings": {"theme": "dark"},
-                    "quick_tags": ["alpha"]
-                }))
-                .unwrap();
-
-            let conn = Connection::open(storage_dir.join("proxy.db")).unwrap();
-            let revision_id: i64 = conn
-                .query_row("SELECT id FROM settings_revision ORDER BY id DESC LIMIT 1", [], |row| {
-                    row.get(0)
-                })
-                .unwrap();
-            drop(conn);
-
-            let updated = admin
-                .patch_history_tags(revision_id, &[
-                    "Beta".to_string()
-                ], &[
-                    "alpha".to_string(),
-                    "missing".to_string()
-                ])
-                .unwrap();
-
-            assert!(updated.tags.contains(&"beta".to_string()));
-            assert!(!updated.tags.contains(&"alpha".to_string()));
-        });
-    }
-
-    #[test]
-    fn history_tags_patch_rejects_empty_tag_values() {
-        let (storage_dir, claude_dir) = make_test_paths("history-tags-empty-task3");
-        let admin = make_admin(storage_dir.clone(), claude_dir);
-
-        admin.apply_settings(json!({"theme": "dark"})).unwrap();
-        let conn = Connection::open(storage_dir.join("proxy.db")).unwrap();
-        let revision_id: i64 = conn
-            .query_row("SELECT id FROM settings_revision ORDER BY id DESC LIMIT 1", [], |row| {
-                row.get(0)
-            })
-            .unwrap();
-
-        let err = admin
-            .patch_history_tags(revision_id, &["   ".to_string()], &[])
-            .expect_err("empty add tag should fail");
-        assert_eq!(err.code, "invalid_payload");
-    }
-
-    #[test]
     fn history_tags_patch_missing_revision_returns_not_found() {
         let (storage_dir, claude_dir) = make_test_paths("history-tags-missing-task3");
         let admin = make_admin(storage_dir, claude_dir);
@@ -2794,213 +2322,5 @@ mod tests {
             .patch_history_tags(9_999_999, &["alpha".to_string()], &[])
             .expect_err("missing revision id should fail");
         assert_eq!(err.code, "not_found");
-    }
-
-    #[test]
-    fn history_source_default_is_revision_and_legacy_table_untouched_during_apply_cutover() {
-        with_settings_history_source(None, || {
-            let (storage_dir, claude_dir) = make_test_paths("history-source-default-revision");
-            let db_path = storage_dir.join("proxy.db");
-            let conn = Connection::open(&db_path).unwrap();
-            create_legacy_settings_history_table(&conn);
-            insert_legacy_history_row(
-                &conn,
-                "legacy-only-row",
-                10,
-                "success",
-                None,
-                "[]",
-                "{\"legacy\":true}",
-                "{\"legacy\":true}",
-            );
-            drop(conn);
-
-            let admin = make_admin(storage_dir.clone(), claude_dir);
-            admin
-                .apply_settings(json!({
-                    "settings": {"from_revision": true},
-                    "quick_tags": ["cutover"]
-                }))
-                .unwrap();
-
-            let conn = Connection::open(db_path).unwrap();
-            let legacy_row_count: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM settings_history WHERE id = 'legacy-only-row'",
-                    [],
-                    |row| row.get(0),
-                )
-                .unwrap();
-            assert_eq!(legacy_row_count, 1);
-
-            let revision_count: i64 = conn
-                .query_row("SELECT COUNT(*) FROM settings_revision", [], |row| row.get(0))
-                .unwrap();
-            assert!(revision_count >= 2);
-
-            let revision_source_count: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*) FROM settings_history WHERE source = 'settings_admin'",
-                    [],
-                    |row| row.get(0),
-                )
-                .unwrap();
-            assert!(revision_source_count >= 1);
-        });
-    }
-
-    #[test]
-    fn history_source_toggle_legacy_serves_legacy_rows_without_cutover_mutation() {
-        let (storage_dir, claude_dir) = make_test_paths("history-source-toggle-legacy");
-        let db_path = storage_dir.join("proxy.db");
-        let conn = Connection::open(&db_path).unwrap();
-        create_legacy_settings_history_table(&conn);
-
-        insert_legacy_history_row(
-            &conn,
-            "legacy-a",
-            100,
-            "success",
-            None,
-            "[]",
-            "{\"marker\":\"legacy-a\"}",
-            "{\"marker\":\"legacy-a\"}",
-        );
-        insert_legacy_history_row(
-            &conn,
-            "legacy-b",
-            200,
-            "success",
-            None,
-            "[]",
-            "{\"marker\":\"legacy-b\"}",
-            "{\"marker\":\"legacy-b\"}",
-        );
-        drop(conn);
-
-        with_settings_history_source(None, || {
-            let admin = make_admin(storage_dir.clone(), claude_dir.clone());
-            admin
-                .apply_settings(json!({"settings": {"marker": "revision-candidate"}}))
-                .unwrap();
-        });
-
-        let legacy_baseline_count: i64 = Connection::open(&db_path)
-            .unwrap()
-            .query_row("SELECT COUNT(*) FROM settings_history", [], |row| row.get(0))
-            .unwrap();
-
-        with_settings_history_source(Some("legacy"), || {
-            let admin = make_admin(storage_dir.clone(), claude_dir.clone());
-            let legacy_history = admin.get_history(20, 0, None).unwrap();
-            assert_eq!(legacy_history.len(), 2);
-            let ids: Vec<String> = legacy_history.iter().map(|row| row.id.clone()).collect();
-            assert!(ids.contains(&"legacy-a".to_string()));
-            assert!(ids.contains(&"legacy-b".to_string()));
-
-            admin
-                .apply_settings(json!({"settings": {"marker": "legacy-write"}}))
-                .unwrap();
-        });
-
-        let conn = Connection::open(db_path).unwrap();
-        let legacy_after_toggle_count: i64 = conn
-            .query_row("SELECT COUNT(*) FROM settings_history", [], |row| row.get(0))
-            .unwrap();
-        assert_eq!(legacy_after_toggle_count, legacy_baseline_count + 1);
-
-        let revision_rows_for_new_legacy_write: i64 = conn
-            .query_row(
-                "SELECT COUNT(*) FROM settings_revision WHERE legacy_id IN (SELECT id FROM settings_history WHERE source = 'settings_admin')",
-                [],
-                |row| row.get(0),
-            )
-            .unwrap();
-        assert!(revision_rows_for_new_legacy_write >= 1);
-    }
-
-    #[test]
-    fn rollback_drill_revision_cutover_then_legacy_rollback_preserves_consistency_without_unexpected_mutation() {
-        let (storage_dir, claude_dir) = make_test_paths("rollback-drill");
-        let db_path = storage_dir.join("proxy.db");
-        let conn = Connection::open(&db_path).unwrap();
-        create_legacy_settings_history_table(&conn);
-
-        insert_legacy_history_row(
-            &conn,
-            "legacy-seed-1",
-            1_000,
-            "success",
-            None,
-            "[]",
-            "{\"phase\":\"legacy-baseline\",\"n\":1}",
-            "{\"phase\":\"legacy-baseline\",\"n\":1}",
-        );
-        insert_legacy_history_row(
-            &conn,
-            "legacy-seed-2",
-            2_000,
-            "success",
-            None,
-            "[]",
-            "{\"phase\":\"legacy-baseline\",\"n\":2}",
-            "{\"phase\":\"legacy-baseline\",\"n\":2}",
-        );
-        drop(conn);
-
-        with_settings_history_source(None, || {
-            let admin = make_admin(storage_dir.clone(), claude_dir.clone());
-            admin
-                .apply_settings(json!({"settings": {"phase": "revision-cutover", "n": 3}}))
-                .unwrap();
-
-            let revision_history = admin.get_history(20, 0, None).unwrap();
-            assert!(
-                revision_history
-                    .iter()
-                    .any(|row| row.claude_settings.raw_json.get("phase") == Some(&json!("revision-cutover")))
-            );
-        });
-
-        let count_after_cutover: i64 = Connection::open(&db_path)
-            .unwrap()
-            .query_row("SELECT COUNT(*) FROM settings_history", [], |row| row.get(0))
-            .unwrap();
-
-        with_settings_history_source(Some("legacy"), || {
-            let admin = make_admin(storage_dir.clone(), claude_dir.clone());
-            let legacy_before = admin.get_history(20, 0, None).unwrap();
-            let legacy_ids_before: Vec<String> = legacy_before.iter().map(|row| row.id.clone()).collect();
-            assert!(legacy_ids_before.contains(&"legacy-seed-1".to_string()));
-            assert!(legacy_ids_before.contains(&"legacy-seed-2".to_string()));
-
-            admin
-                .apply_settings(json!({"settings": {"phase": "legacy-rollback", "n": 4}}))
-                .unwrap();
-
-            let legacy_after = admin.get_history(20, 0, None).unwrap();
-            assert!(legacy_after.len() >= legacy_before.len() + 1);
-            assert!(
-                legacy_after
-                    .iter()
-                    .any(|row| row.claude_settings.raw_json.get("phase") == Some(&json!("legacy-rollback")))
-            );
-        });
-
-        let count_after_rollback_apply: i64 = Connection::open(&db_path)
-            .unwrap()
-            .query_row("SELECT COUNT(*) FROM settings_history", [], |row| row.get(0))
-            .unwrap();
-        assert_eq!(count_after_rollback_apply, count_after_cutover + 1);
-
-        with_settings_history_source(Some("legacy"), || {
-            let admin = make_admin(storage_dir.clone(), claude_dir.clone());
-            let legacy_read = admin.get_history(20, 0, None).unwrap();
-            assert!(
-                legacy_read
-                    .iter()
-                    .any(|row| row.claude_settings.raw_json.get("phase") == Some(&json!("legacy-rollback")))
-            );
-        });
     }
 }
