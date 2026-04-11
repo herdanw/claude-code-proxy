@@ -592,18 +592,18 @@ mod tests {
 
     #[test]
     fn extract_sse_usage_handles_fragmented_data_line_across_chunks() {
-        let chunk1 = "data: {\"type\":\"message_delta\",\"usage\":{\"thinking_tokens\":";
-        let chunk2 = "9},\"stop_reason\":\"end_turn\"}\n\n";
+        let chunk1 = b"data: {\"type\":\"message_delta\",\"usage\":{\"thinking_tokens\":";
+        let chunk2 = b"9},\"stop_reason\":\"end_turn\"}\n\n";
 
         let mut usage = UsageData::default();
         let mut stop_reason = None;
         let mut line_buffer = String::new();
 
-        process_sse_text_chunk(chunk1, &mut line_buffer, &mut usage, &mut stop_reason);
+        extract_sse_usage_and_metadata(chunk1, &mut line_buffer, &mut usage, &mut stop_reason);
         assert_eq!(usage.thinking_tokens, None);
         assert_eq!(stop_reason, None);
 
-        process_sse_text_chunk(chunk2, &mut line_buffer, &mut usage, &mut stop_reason);
+        extract_sse_usage_and_metadata(chunk2, &mut line_buffer, &mut usage, &mut stop_reason);
         assert_eq!(usage.thinking_tokens, Some(9));
         assert_eq!(stop_reason.as_deref(), Some("end_turn"));
     }
