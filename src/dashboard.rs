@@ -4,11 +4,11 @@ use crate::stats::*;
 use axum::{
     extract::{
         ws::{Message, WebSocket, WebSocketUpgrade},
-        Query, State,
+        Path, Query, State,
     },
     http::StatusCode,
     response::{Html, IntoResponse},
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use std::sync::Arc;
@@ -37,9 +37,22 @@ pub async fn run_dashboard(store: Arc<StatsStore>, port: u16) -> Result<(), Stri
 fn build_dashboard_app(store: Arc<StatsStore>) -> Router {
     Router::new()
         .route("/", get(serve_dashboard))
+        .route("/api/health", get(api_health))
         .route("/api/stats", get(api_stats))
         .route("/api/entries", get(api_entries))
+        .route("/api/requests", get(api_requests))
+        .route("/api/requests/:id", get(api_request_detail))
+        .route("/api/requests/:id/body", get(api_request_body))
+        .route("/api/requests/:id/tools", get(api_request_tools))
+        .route("/api/models", get(api_models))
+        .route("/api/models/:name/profile", get(api_model_profile))
+        .route("/api/models/:name/comparison", get(api_model_comparison))
+        .route("/api/model-config", get(api_model_config).put(api_put_model_config))
+        .route("/api/anomalies/recent", get(api_recent_anomalies))
+        .route("/api/anomalies", get(api_anomalies))
+        .route("/api/anomalies/:id", get(api_anomaly_detail))
         .route("/api/sessions", get(api_sessions))
+        .route("/api/sessions/:id", get(api_session_by_id))
         .route("/api/sessions/merged", get(api_sessions_merged))
         .route("/api/correlations", get(api_correlations))
         .route("/api/explanations", get(api_explanations))
@@ -59,6 +72,118 @@ fn build_dashboard_app(store: Arc<StatsStore>) -> Router {
 
 async fn serve_dashboard() -> impl IntoResponse {
     Html(include_str!("dashboard.html"))
+}
+
+async fn api_health(State(store): State<Arc<StatsStore>>) -> impl IntoResponse {
+    let snapshot = store.get_live_stats_snapshot();
+    Json(serde_json::json!({
+        "report_card_metrics": {
+            "health_score": snapshot.stats.health_score,
+            "health_label": snapshot.stats.health_label,
+            "total_requests": snapshot.stats.total_requests,
+            "total_errors": snapshot.stats.total_errors,
+            "success_rate": snapshot.stats.success_rate,
+            "avg_ttft_ms": snapshot.stats.avg_ttft_ms
+        },
+        "recent_anomalies": snapshot.stats.recent_anomalies
+    }))
+}
+
+async fn api_recent_anomalies(State(store): State<Arc<StatsStore>>) -> impl IntoResponse {
+    let snapshot = store.get_live_stats_snapshot();
+    Json(snapshot.stats.recent_anomalies)
+}
+
+async fn api_requests(State(store): State<Arc<StatsStore>>) -> impl IntoResponse {
+    let entries = store.get_entries(100, 0, &EntryFilter::default(), Some("timestamp_ms"), Some("desc"));
+    Json(entries)
+}
+
+async fn api_request_detail(
+    Path(id): Path<String>,
+    State(store): State<Arc<StatsStore>>,
+) -> impl IntoResponse {
+    let entry = store
+        .get_entries(1000, 0, &EntryFilter::default(), Some("timestamp_ms"), Some("desc"))
+        .into_iter()
+        .find(|item| item.id == id);
+
+    match entry {
+        Some(entry) => (StatusCode::OK, Json(serde_json::json!(entry))).into_response(),
+        None => (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "not found" }))).into_response(),
+    }
+}
+
+async fn api_request_body(
+    Path(id): Path<String>,
+    State(store): State<Arc<StatsStore>>,
+) -> impl IntoResponse {
+    match store.get_body(&id) {
+        Some(body) => (StatusCode::OK, Json(serde_json::json!(body))).into_response(),
+        None => (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "not found" }))).into_response(),
+    }
+}
+
+async fn api_request_tools(Path(_id): Path<String>) -> impl IntoResponse {
+    Json(serde_json::json!([]))
+}
+
+async fn api_models(State(store): State<Arc<StatsStore>>) -> impl IntoResponse {
+    let entries = store.get_entries(1000, 0, &EntryFilter::default(), None, None);
+    let mut by_model: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    for entry in entries {
+        *by_model.entry(entry.model).or_insert(0) += 1;
+    }
+    Json(serde_json::json!(by_model))
+}
+
+async fn api_model_profile(Path(name): Path<String>) -> impl IntoResponse {
+    Json(serde_json::json!({"model": name, "profile": serde_json::Value::Null}))
+}
+
+async fn api_model_comparison(Path(name): Path<String>) -> impl IntoResponse {
+    Json(serde_json::json!({"model": name, "comparison": serde_json::Value::Null}))
+}
+
+async fn api_model_config() -> impl IntoResponse {
+    Json(serde_json::json!({"profiles": {}, "model_mappings": {}}))
+}
+
+async fn api_put_model_config(Json(payload): Json<serde_json::Value>) -> impl IntoResponse {
+    (StatusCode::OK, Json(serde_json::json!({"ok": true, "data": payload})))
+}
+
+async fn api_anomalies(State(store): State<Arc<StatsStore>>) -> impl IntoResponse {
+    let snapshot = store.get_live_stats_snapshot();
+    Json(snapshot.stats.recent_anomalies)
+}
+
+async fn api_anomaly_detail(Path(id): Path<String>) -> impl IntoResponse {
+    (
+        StatusCode::NOT_FOUND,
+        Json(serde_json::json!({"error": format!("anomaly {id} not found")})),
+    )
+}
+
+async fn api_session_by_id(
+    Path(id): Path<String>,
+    State(store): State<Arc<StatsStore>>,
+) -> impl IntoResponse {
+    let details = if id == "unknown" {
+        build_unknown_session_details(&store, 200)
+    } else {
+        store.get_session_details(&id, None, 200, false)
+    };
+
+    if matches!(details.presence, SessionPresence::None) {
+        return (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({"error": "not found"})),
+        )
+            .into_response();
+    }
+
+    (StatusCode::OK, Json(versioned(details))).into_response()
 }
 
 #[derive(serde::Deserialize, Default)]
@@ -657,6 +782,40 @@ mod tests {
         http::{Method, Request, StatusCode},
     };
     use tower::util::ServiceExt;
+
+    #[tokio::test]
+    async fn health_endpoint_returns_report_card_metrics() {
+        let log_dir = std::env::temp_dir().join(format!(
+            "claude-proxy-dashboard-health-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&log_dir).unwrap();
+
+        let store = Arc::new(StatsStore::new(
+            10,
+            log_dir.clone(),
+            20.0,
+            8.0,
+            2_097_152,
+            log_dir.clone(),
+        ));
+        let app = build_dashboard_app(store);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/api/health")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let _ = std::fs::remove_dir_all(&log_dir);
+    }
 
     #[tokio::test]
     async fn dashboard_html_includes_correlation_panel() {
