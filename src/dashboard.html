@@ -612,16 +612,6 @@
         </div>
       </div>
 
-      <div id="settings-mismatch-callout" style="display:none;margin-bottom:10px;padding:10px;background:rgba(250,179,135,0.1);border:1px solid var(--peach);border-radius:8px">
-        <div style="display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap">
-          <span style="font-size:11px;color:var(--peach);font-family:var(--mono)">settings.json mismatch detected</span>
-          <div style="display:flex;gap:6px;flex-wrap:wrap">
-            <button class="filter-btn" id="settings-keep-disk-btn" type="button">Keep disk</button>
-            <button class="filter-btn" id="settings-keep-db-snapshot-btn" type="button">Keep DB snapshot</button>
-          </div>
-        </div>
-      </div>
-
       <div id="settings-error-banner" style="display:none;margin-bottom:10px;padding:10px;background:rgba(243,139,168,0.1);border:1px solid var(--red);border-radius:8px;cursor:pointer">
         <span id="settings-error-text" style="font-size:11px;color:var(--red);font-family:var(--mono)"></span>
       </div>
@@ -685,9 +675,7 @@ let requestViewSnapshot = null;
 const MAX_SESSION_CONVERSATION_CACHE_ITEMS = 10;
 let settingsMismatchActive = false;
 let settingsDiskLoadedSnapshot = null;
-let settingsDbSnapshotCandidate = null;
 let settingsApplyInFlight = false;
-let settingsMismatchActionTaken = false;
 let settingsValidationErrorLine = null;
 let settingsValidationMessage = '';
 let settingsValidateTimer = null;
@@ -1933,16 +1921,6 @@ function syncSettingsEditorScroll() {
   lineNumbers.scrollTop = editor.scrollTop;
 }
 
-function renderSettingsMismatchCallout() {
-  const callout = document.getElementById('settings-mismatch-callout');
-  const keepDiskBtn = document.getElementById('settings-keep-disk-btn');
-  const keepDbBtn = document.getElementById('settings-keep-db-snapshot-btn');
-  if (!callout) return;
-  callout.style.display = settingsMismatchActive ? 'block' : 'none';
-  if (keepDiskBtn) keepDiskBtn.disabled = settingsApplyInFlight;
-  if (keepDbBtn) keepDbBtn.disabled = settingsApplyInFlight || !settingsDbSnapshotCandidate;
-}
-
 function renderSettingsErrorBanner() {
   const banner = document.getElementById('settings-error-banner');
   const text = document.getElementById('settings-error-text');
@@ -2024,40 +2002,25 @@ async function loadSettingsCurrent() {
 
     const raw = payload?.data?.claude_settings?.raw_json;
     const normalized = raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
-    const dbRaw = payload?.data?.proxy_settings?.raw_json;
-    const dbNormalized = dbRaw && typeof dbRaw === 'object' && !Array.isArray(dbRaw) ? dbRaw : null;
 
     settingsDiskLoadedSnapshot = normalized;
-    settingsDbSnapshotCandidate = dbNormalized;
-    settingsMismatchActive = payload?.data?.db_file_mismatch === true;
-    const fileRecreatedFromDb = payload?.data?.file_recreated_from_db === true;
-    if (!settingsMismatchActive) settingsMismatchActionTaken = false;
+    settingsMismatchActive = false;
 
     const normalizedText = JSON.stringify(normalized, null, 2);
     const normalizedBaseline = JSON.stringify(normalized);
 
-    if (settingsMismatchActive && !settingsMismatchActionTaken) {
-      editor.value = normalizedText;
-      editor.dataset.lastLoadedSnapshot = normalizedBaseline;
-    } else if (editor.dataset.lastLoadedSnapshot == null || !isSettingsEditorDirty()) {
+    if (editor.dataset.lastLoadedSnapshot == null || !isSettingsEditorDirty()) {
       editor.value = normalizedText;
       editor.dataset.lastLoadedSnapshot = normalizedBaseline;
     }
 
     if (status) {
-      if (fileRecreatedFromDb) {
-        status.textContent = 'settings.json was missing and has been recreated from the latest DB snapshot';
-      } else if (settingsMismatchActive) {
-        status.textContent = 'Loaded settings.json from disk (differs from latest DB snapshot)';
-      } else {
-        status.textContent = 'Loaded current settings';
-      }
+      status.textContent = 'Loaded current settings';
       status.style.color = 'var(--text-2)';
     }
 
     settingsValidationErrorLine = null;
     settingsValidationMessage = '';
-    renderSettingsMismatchCallout();
     renderSettingsEditor();
     renderSettingsErrorBanner();
     syncSettingsEditorScroll();
@@ -2068,7 +2031,6 @@ async function loadSettingsCurrent() {
       status.style.color = 'var(--red)';
     }
     settingsMismatchActive = false;
-    renderSettingsMismatchCallout();
   }
 }
 
@@ -2076,16 +2038,12 @@ async function applySettingsPayload(parsed, { successMessage = 'Settings applied
   const editor = document.getElementById('settings-claude-json');
   const status = document.getElementById('settings-apply-status');
   const applyBtn = document.getElementById('settings-apply-btn');
-  const keepDiskBtn = document.getElementById('settings-keep-disk-btn');
-  const keepDbBtn = document.getElementById('settings-keep-db-snapshot-btn');
   if (!editor || !applyBtn) return false;
   if (settingsApplyInFlight) return false;
 
   settingsApplyInFlight = true;
   const original = applyBtn.textContent;
   applyBtn.disabled = true;
-  if (keepDiskBtn) keepDiskBtn.disabled = true;
-  if (keepDbBtn) keepDbBtn.disabled = true;
   applyBtn.textContent = 'Applying…';
 
   try {
@@ -2107,7 +2065,6 @@ async function applySettingsPayload(parsed, { successMessage = 'Settings applied
     }
 
     editor.dataset.lastLoadedSnapshot = JSON.stringify(parsed);
-    settingsMismatchActionTaken = false;
     settingsMismatchActive = false;
     settingsValidationErrorLine = null;
     settingsValidationMessage = '';
@@ -2116,7 +2073,6 @@ async function applySettingsPayload(parsed, { successMessage = 'Settings applied
       status.style.color = 'var(--green)';
     }
 
-    renderSettingsMismatchCallout();
     renderSettingsEditor();
     renderSettingsErrorBanner();
     setTimeout(() => {
@@ -2137,59 +2093,10 @@ async function applySettingsPayload(parsed, { successMessage = 'Settings applied
     settingsApplyInFlight = false;
     applyBtn.disabled = false;
     applyBtn.textContent = original;
-    renderSettingsMismatchCallout();
     renderSettingsErrorBanner();
   }
 }
 
-function keepDbSnapshotInEditor() {
-  if (settingsApplyInFlight) return;
-  const editor = document.getElementById('settings-claude-json');
-  const status = document.getElementById('settings-apply-status');
-  if (!editor || !settingsDbSnapshotCandidate) return;
-
-  editor.value = JSON.stringify(settingsDbSnapshotCandidate, null, 2);
-  settingsMismatchActionTaken = true;
-  settingsMismatchActive = true;
-  settingsValidationErrorLine = null;
-  settingsValidationMessage = '';
-  renderSettingsMismatchCallout();
-  renderSettingsEditor();
-  renderSettingsErrorBanner();
-  editor.focus();
-
-  if (status) {
-    status.textContent = 'Loaded DB snapshot into editor (not yet applied)';
-    status.style.color = 'var(--text-2)';
-  }
-}
-
-async function keepDiskAndApplyNow() {
-  const editor = document.getElementById('settings-claude-json');
-  const status = document.getElementById('settings-apply-status');
-  if (!editor) return;
-
-  let parsed;
-  try {
-    parsed = JSON.parse(editor.value || '{}');
-  } catch (_) {
-    if (status) {
-      status.textContent = 'Invalid JSON: cannot Keep disk until syntax is fixed';
-      status.style.color = 'var(--red)';
-    }
-    return;
-  }
-
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    if (status) {
-      status.textContent = 'JSON must be an object';
-      status.style.color = 'var(--red)';
-    }
-    return;
-  }
-
-  await applySettingsPayload(parsed, { successMessage: 'Kept disk settings and applied' });
-}
 
 async function applySettings() {
   const editor = document.getElementById('settings-claude-json');
@@ -2249,7 +2156,6 @@ async function resetSettingsEditor() {
   if (isSettingsEditorDirty() && !window.confirm('Discard unsaved settings changes and reload from disk?')) {
     return;
   }
-  settingsMismatchActionTaken = false;
   await loadSettingsCurrent();
 }
 
@@ -2890,8 +2796,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('settings-apply-btn')?.addEventListener('click', applySettings);
   document.getElementById('settings-format-btn')?.addEventListener('click', formatSettingsEditor);
   document.getElementById('settings-reset-btn')?.addEventListener('click', resetSettingsEditor);
-  document.getElementById('settings-keep-disk-btn')?.addEventListener('click', keepDiskAndApplyNow);
-  document.getElementById('settings-keep-db-snapshot-btn')?.addEventListener('click', keepDbSnapshotInEditor);
   settingsEditor?.addEventListener('input', () => {
     renderSettingsEditor();
     scheduleSettingsValidation();

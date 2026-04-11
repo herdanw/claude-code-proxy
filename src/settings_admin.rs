@@ -7,9 +7,6 @@ use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-#[cfg(test)]
-use std::sync::atomic::{AtomicBool, Ordering};
-
 
 const BACKUP_RETENTION_MAX: usize = 20;
 
@@ -79,8 +76,6 @@ pub struct SettingsAdmin {
     claude_dir: PathBuf,
     #[allow(dead_code)]
     history_source: SettingsHistorySource,
-    #[cfg(test)]
-    fail_primary_db_write_once: AtomicBool,
 }
 
 impl SettingsAdmin {
@@ -89,103 +84,12 @@ impl SettingsAdmin {
             db_path: store.database_path().to_path_buf(),
             claude_dir: store.claude_dir().to_path_buf(),
             history_source: resolve_settings_history_source(),
-            #[cfg(test)]
-            fail_primary_db_write_once: AtomicBool::new(false),
         }
     }
 
     pub fn get_current(&self) -> Result<Option<SettingsCurrentResponse>, SettingsAdminError> {
-        let conn = self.open_db()?;
-        self.ensure_schema(&conn)?;
-
-        // Step 1: Query DB for singleton row
-        let db_snapshot: Option<(i64, String, String)> = conn
-            .query_row(
-                "
-                SELECT updated_at_ms, proxy_settings_json, claude_settings_json
-                FROM settings_current
-                WHERE singleton_id = 1
-                ",
-                [],
-                |row| {
-                    Ok((
-                        row.get::<_, i64>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                    ))
-                },
-            )
-            .optional()
-            .map_err(|err| SettingsAdminError {
-                code: "db_read_failed".to_string(),
-                message: format!("failed to load current settings snapshot: {err}"),
-            })?;
-
-        // Step 2: Read disk file
-        let disk_snapshot = self.load_current_from_settings_file()?;
-
-        match (db_snapshot, disk_snapshot) {
-            // Both exist: compare DB claude_settings vs disk content
-            (Some((updated_at_ms, proxy_json_text, db_claude_json_text)), Some(disk)) => {
-                let db_claude_value: Value = serde_json::from_str(&db_claude_json_text)
-                    .unwrap_or(Value::Object(Default::default()));
-                let disk_claude_value = &disk.claude_settings.raw_json;
-
-                // Normalize both to canonical JSON strings for comparison
-                let db_normalized = serde_json::to_string(&db_claude_value).unwrap_or_default();
-                let disk_normalized = serde_json::to_string(disk_claude_value).unwrap_or_default();
-                let db_file_mismatch = db_normalized != disk_normalized;
-
-                Ok(Some(SettingsCurrentResponse {
-                    updated_at_ms,
-                    proxy_settings: ProxySettingsDocument {
-                        raw_json: serde_json::from_str(&proxy_json_text)
-                            .unwrap_or(Value::Object(Default::default())),
-                    },
-                    claude_settings: ClaudeSettingsDocument {
-                        raw_json: disk_claude_value.clone(),
-                    },
-                    db_file_mismatch,
-                    file_recreated_from_db: false,
-                }))
-            }
-            // DB only, no file: recreate settings.json from DB snapshot
-            (Some((updated_at_ms, proxy_json_text, db_claude_json_text)), None) => {
-                let db_claude_value: Value = serde_json::from_str(&db_claude_json_text)
-                    .unwrap_or(Value::Object(Default::default()));
-
-                // Recreate settings.json from DB snapshot
-                let serialized = serde_json::to_string_pretty(&db_claude_value)
-                    .map_err(|err| SettingsAdminError {
-                        code: "settings_write_failed".to_string(),
-                        message: format!("failed to serialize DB snapshot for file recreation: {err}"),
-                    })?;
-
-                fs::create_dir_all(&self.claude_dir).map_err(|err| SettingsAdminError {
-                    code: "settings_write_failed".to_string(),
-                    message: format!("failed to ensure claude directory exists: {err}"),
-                })?;
-
-                self.write_settings_atomically(&serialized)?;
-
-                Ok(Some(SettingsCurrentResponse {
-                    updated_at_ms,
-                    proxy_settings: ProxySettingsDocument {
-                        raw_json: serde_json::from_str(&proxy_json_text)
-                            .unwrap_or(Value::Object(Default::default())),
-                    },
-                    claude_settings: ClaudeSettingsDocument {
-                        raw_json: db_claude_value,
-                    },
-                    db_file_mismatch: false,
-                    file_recreated_from_db: true,
-                }))
-            }
-            // File only, no DB
-            (None, Some(disk)) => Ok(Some(disk)),
-            // Neither
-            (None, None) => Ok(None),
-        }
+        // Read settings.json from disk — single source of truth, no DB comparison
+        self.load_current_from_settings_file()
     }
 
 
@@ -833,48 +737,13 @@ impl SettingsAdmin {
 
         self.prune_backups_to_retention()?;
 
-        let proxy_json = effective_settings.clone();
-        let claude_json = effective_settings;
-
-        let proxy_json_text = serde_json::to_string(&proxy_json).map_err(|err| SettingsAdminError {
-            code: "invalid_payload".to_string(),
-            message: format!("failed to serialize proxy settings snapshot: {err}"),
-        })?;
-        let claude_json_text = serde_json::to_string(&claude_json).map_err(|err| SettingsAdminError {
-            code: "invalid_payload".to_string(),
-            message: format!("failed to serialize claude settings snapshot: {err}"),
-        })?;
-
-        let mut conn = self.open_db()?;
-        self.ensure_schema(&conn)?;
-
-        let write_outcome: Result<(), String> = if self.should_fail_primary_db_write_for_test() {
-            Err("simulated primary db write failure".to_string())
-        } else {
-            self.persist_settings_snapshot(
-                &mut conn,
-                now_ms,
-                &proxy_json_text,
-                &claude_json_text,
-            )
-        };
-
-        if let Err(primary_err) = write_outcome {
-            return Err(SettingsAdminError {
-                code: "db_write_failed".to_string(),
-                message: format!(
-                    "settings.json was written but database snapshot persistence failed: {primary_err}"
-                ),
-            });
-        }
-
         Ok(SettingsCurrentResponse {
             updated_at_ms: now_ms,
             proxy_settings: ProxySettingsDocument {
-                raw_json: proxy_json,
+                raw_json: effective_settings.clone(),
             },
             claude_settings: ClaudeSettingsDocument {
-                raw_json: claude_json,
+                raw_json: effective_settings,
             },
             db_file_mismatch: false,
             file_recreated_from_db: false,
@@ -956,58 +825,11 @@ impl SettingsAdmin {
         Ok(deleted)
     }
 
-    #[cfg(test)]
-    pub fn trigger_db_failure_once_for_test(&self) {
-        self.fail_primary_db_write_once.store(true, Ordering::SeqCst);
-    }
-
-    #[cfg(not(test))]
-    fn should_fail_primary_db_write_for_test(&self) -> bool {
-        false
-    }
-
-    #[cfg(test)]
-    fn should_fail_primary_db_write_for_test(&self) -> bool {
-        self.fail_primary_db_write_once.swap(false, Ordering::SeqCst)
-    }
-
-
     fn open_db(&self) -> Result<Connection, SettingsAdminError> {
         Connection::open(&self.db_path).map_err(|err| SettingsAdminError {
             code: "db_open_failed".to_string(),
             message: format!("failed to open sqlite database: {err}"),
         })
-    }
-    fn persist_settings_snapshot(
-        &self,
-        conn: &mut Connection,
-        now_ms: i64,
-        proxy_json_text: &str,
-        claude_json_text: &str,
-    ) -> Result<(), String> {
-        let tx = conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .map_err(|err| format!("failed to open settings transaction: {err}"))?;
-
-        tx.execute(
-            "
-            INSERT INTO settings_current (
-                singleton_id,
-                updated_at_ms,
-                proxy_settings_json,
-                claude_settings_json
-            ) VALUES (1, ?1, ?2, ?3)
-            ON CONFLICT(singleton_id) DO UPDATE SET
-                updated_at_ms = excluded.updated_at_ms,
-                proxy_settings_json = excluded.proxy_settings_json,
-                claude_settings_json = excluded.claude_settings_json
-            ",
-            params![now_ms, proxy_json_text, claude_json_text],
-        )
-        .map_err(|err| format!("failed to upsert settings_current: {err}"))?;
-
-        tx.commit()
-            .map_err(|err| format!("failed to commit settings transaction: {err}"))
     }
 
     fn settings_path(&self) -> PathBuf {
@@ -1861,6 +1683,9 @@ mod tests {
         let (storage_dir, claude_dir) = make_test_paths("apply-no-revision-row");
         let admin = make_admin(storage_dir.clone(), claude_dir);
 
+        // Ensure DB schema exists (get_history triggers it; apply_settings no longer touches DB)
+        admin.get_history(1, 0, None).unwrap();
+
         admin
             .apply_settings(json!({"settings": {"model": "claude-opus-4.6", "max_tokens": 256}}))
             .unwrap();
@@ -2001,27 +1826,6 @@ mod tests {
     }
 
     #[test]
-    fn failure_path_preserves_backup_without_appending_history_row() {
-        let (storage_dir, claude_dir) = make_test_paths("failure-history-none");
-        let settings_path = claude_dir.join("settings.json");
-        fs::write(&settings_path, "{\"initial\":true}").unwrap();
-
-        let admin = make_admin(storage_dir, claude_dir.clone());
-        admin.trigger_db_failure_once_for_test();
-        let err = admin
-            .apply_settings(json!({"initial": false}))
-            .expect_err("simulated db failure");
-
-        assert_eq!(err.code, "db_write_failed");
-
-        let backups = admin.list_backups().unwrap();
-        assert_eq!(backups.len(), 1);
-
-        let history = admin.get_history(10, 0, None).unwrap();
-        assert!(history.is_empty());
-    }
-
-    #[test]
     fn bulk_delete_selected_backups() {
         let (storage_dir, claude_dir) = make_test_paths("delete-selected");
         let settings_path = claude_dir.join("settings.json");
@@ -2066,7 +1870,8 @@ mod tests {
         let (storage_dir, claude_dir) = make_test_paths("revision-schema");
         let admin = make_admin(storage_dir.clone(), claude_dir);
 
-        admin.get_current().unwrap();
+        // get_history triggers DB schema init (get_current no longer touches DB)
+        admin.get_history(1, 0, None).unwrap();
 
         let conn = Connection::open(storage_dir.join("proxy.db")).unwrap();
         let revision_exists: i64 = conn
@@ -2179,7 +1984,8 @@ mod tests {
         drop(conn);
 
         let admin = make_admin(storage_dir.clone(), claude_dir);
-        admin.get_current().unwrap();
+        // Trigger DB schema init (get_current no longer touches DB)
+        admin.get_history(1, 0, None).unwrap();
 
         let conn = Connection::open(db_path).unwrap();
         let rows: Vec<(String, i64, String, Option<String>, String)> = conn
@@ -2260,7 +2066,8 @@ mod tests {
         drop(conn);
 
         let admin = make_admin(storage_dir.clone(), claude_dir);
-        admin.get_current().unwrap();
+        // Trigger DB schema init (get_current no longer touches DB)
+        admin.get_history(1, 0, None).unwrap();
 
         let conn = Connection::open(db_path).unwrap();
         let migrated_settings_json: String = conn

@@ -817,19 +817,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn dashboard_html_settings_mismatch_actions_are_wired() {
+    async fn dashboard_html_settings_mismatch_removed() {
         let html = include_str!("dashboard.html");
-        assert!(html.contains("id=\"settings-mismatch-callout\""));
-        assert!(html.contains("id=\"settings-keep-disk-btn\""));
-        assert!(html.contains("id=\"settings-keep-db-snapshot-btn\""));
-        assert!(html.contains("settings-keep-disk-btn')?.addEventListener('click', keepDiskAndApplyNow)"));
-        assert!(html.contains("settings-keep-db-snapshot-btn')?.addEventListener('click', keepDbSnapshotInEditor)"));
+        // Mismatch callout and DB snapshot actions should no longer exist
+        assert!(!html.contains("id=\"settings-mismatch-callout\""));
+        assert!(!html.contains("id=\"settings-keep-disk-btn\""));
+        assert!(!html.contains("id=\"settings-keep-db-snapshot-btn\""));
+        assert!(!html.contains("keepDiskAndApplyNow"));
+        assert!(!html.contains("keepDbSnapshotInEditor"));
     }
 
     #[tokio::test]
-    async fn settings_current_mismatch_persists_until_apply_reconciliation() {
+    async fn settings_current_returns_disk_only_no_mismatch() {
         let root = std::env::temp_dir().join(format!(
-            "claude-proxy-dashboard-mismatch-{}",
+            "claude-proxy-dashboard-disk-only-{}",
             uuid::Uuid::new_v4()
         ));
         let storage_dir = root.join("storage");
@@ -840,32 +841,27 @@ mod tests {
         let store = Arc::new(StatsStore::new(100, storage_dir, 20.0, 8.0, 2_097_152, claude_dir.clone()));
         let admin = crate::settings_admin::SettingsAdmin::new(store);
 
-        // Apply initial settings to populate both DB and file
+        // Apply settings — writes to disk only
         admin.apply_settings(serde_json::json!({"theme": "dark"})).unwrap();
 
-        // Mutate settings.json on disk directly
-        let settings_path = claude_dir.join("settings.json");
-        std::fs::write(&settings_path, serde_json::to_string_pretty(&serde_json::json!({"theme": "light", "extra": true})).unwrap()).unwrap();
-
-        // GET current should detect mismatch
         let current = admin.get_current().unwrap().expect("should have current");
-        assert!(current.db_file_mismatch, "should detect DB vs disk mismatch");
+        assert!(!current.db_file_mismatch);
         assert!(!current.file_recreated_from_db);
-        // claude_settings should be disk content
-        assert_eq!(current.claude_settings.raw_json, serde_json::json!({"theme": "light", "extra": true}));
+        assert_eq!(current.claude_settings.raw_json, serde_json::json!({"theme": "dark"}));
 
-        // Apply the disk content to reconcile
-        admin.apply_settings(serde_json::json!({"theme": "light", "extra": true})).unwrap();
+        // Mutate disk directly — get_current should return disk content, no mismatch
+        let settings_path = claude_dir.join("settings.json");
+        std::fs::write(&settings_path, serde_json::to_string_pretty(&serde_json::json!({"theme": "light"})).unwrap()).unwrap();
 
-        // GET current should now show no mismatch
         let current = admin.get_current().unwrap().expect("should have current");
-        assert!(!current.db_file_mismatch, "mismatch should be resolved after apply");
+        assert!(!current.db_file_mismatch);
+        assert_eq!(current.claude_settings.raw_json, serde_json::json!({"theme": "light"}));
     }
 
     #[tokio::test]
-    async fn settings_current_file_recreated_from_db_when_file_missing() {
+    async fn settings_current_returns_none_when_file_missing() {
         let root = std::env::temp_dir().join(format!(
-            "claude-proxy-dashboard-recreate-{}",
+            "claude-proxy-dashboard-missing-{}",
             uuid::Uuid::new_v4()
         ));
         let storage_dir = root.join("storage");
@@ -876,24 +872,13 @@ mod tests {
         let store = Arc::new(StatsStore::new(100, storage_dir, 20.0, 8.0, 2_097_152, claude_dir.clone()));
         let admin = crate::settings_admin::SettingsAdmin::new(store);
 
-        // Apply settings to populate DB
+        // Apply then delete — should return None, not recreate from DB
         admin.apply_settings(serde_json::json!({"model": "opus"})).unwrap();
-
-        // Delete settings.json
         let settings_path = claude_dir.join("settings.json");
         std::fs::remove_file(&settings_path).unwrap();
-        assert!(!settings_path.exists());
 
-        // GET current should recreate file from DB
-        let current = admin.get_current().unwrap().expect("should have current");
-        assert!(current.file_recreated_from_db, "should indicate file was recreated");
-        assert!(!current.db_file_mismatch);
-        assert_eq!(current.claude_settings.raw_json, serde_json::json!({"model": "opus"}));
-
-        // File should now exist on disk
-        assert!(settings_path.exists());
-        let disk_content: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&settings_path).unwrap()).unwrap();
-        assert_eq!(disk_content, serde_json::json!({"model": "opus"}));
+        let result = admin.get_current().unwrap();
+        assert!(result.is_none(), "should return None when file is missing");
     }
 
 
