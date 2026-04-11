@@ -1627,13 +1627,13 @@ async function populateSessionFilter() {
 
   const previous = currentSessionFilter;
   try {
-    const resp = await fetch('/api/sessions');
+    const resp = await fetch('/api/sessions/merged');
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const sessions = await resp.json();
+    const sessions = envelopeData(await resp.json());
     const options = ['<option value="all">All sessions</option>'];
     for (const s of sessions) {
       const sid = s.session_id || 'unknown';
-      options.push(`<option value="${esc(sid)}">${esc(sid)} (${s.request_count || 0})</option>`);
+      options.push(`<option value="${esc(sid)}">${esc(sid)} (${s.proxy_request_count || 0})</option>`);
     }
     select.innerHTML = options.join('');
     const exists = previous === 'all' || sessions.some(s => (s.session_id || 'unknown') === previous);

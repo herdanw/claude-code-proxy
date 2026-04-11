@@ -106,10 +106,15 @@ claude-proxy.exe --target https://api.example.com    # Required: target API
 - `GET /api/entries?limit=...&anomaly_ts_ms=...&window_ms=...`
 
 ### Correlation & Intelligence
-- `GET /api/correlations?request_id=...&limit=...`
-- `GET /api/explanations?request_id=...&limit=...`
-- `GET /api/timeline?session_id=...&from=...&to=...&limit=...`
-- `GET /api/session-graph?session_id=...&limit=...`
+
+All intelligence endpoints return a versioned envelope: `{ version, generated_at_ms, data }`.
+
+- `GET /api/sessions/merged` — merged proxy/local session rows
+- `GET /api/correlations?request_id=...&limit=...` — correlation links for a request
+- `GET /api/explanations?request_id=...&limit=...` — ranked explanations for a request
+- `GET /api/timeline?session_id=...&from=...&to=...&limit=...` — chronological session events
+- `GET /api/session-graph?session_id=...&limit=...` — session relationship graph
+- `GET /api/session-details?session_id=...` — full session details with timeline and conversation
 
 ### Settings Admin
 - `GET /api/settings/current` — current settings with mismatch detection

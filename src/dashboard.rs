@@ -853,6 +853,13 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn dashboard_html_no_longer_fetches_split_session_sources() {
+        let html = include_str!("dashboard.html");
+        assert!(!html.contains("fetch('/api/sessions')"));
+        assert!(!html.contains("fetch('/api/claude-sessions')"));
+    }
+
+    #[tokio::test]
     async fn dashboard_html_includes_session_graph_section() {
         let html = include_str!("dashboard.html");
         assert!(html.contains("id=\"session-graph\""));
