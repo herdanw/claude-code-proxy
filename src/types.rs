@@ -88,6 +88,19 @@ pub struct ModelProfileAssignment {
     pub sample_count: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CategoryConformanceScore {
+    pub category: String,
+    pub score_percent: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelConformanceSummary {
+    pub model_name: String,
+    pub overall_score_percent: f64,
+    pub category_scores: Vec<CategoryConformanceScore>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
