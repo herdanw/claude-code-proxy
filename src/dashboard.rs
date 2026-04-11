@@ -8,7 +8,7 @@ use axum::{
     },
     http::StatusCode,
     response::{Html, IntoResponse},
-    routing::{delete, get, post, put},
+    routing::{delete, get, post},
     Json, Router,
 };
 use std::sync::Arc;
@@ -516,7 +516,8 @@ async fn api_timeline(
     request_items.append(&mut event_items);
     request_items.sort_by_key(|item| item.timestamp_ms);
     if request_items.len() > cap {
-        request_items.truncate(cap);
+        let keep_from = request_items.len() - cap;
+        request_items = request_items.split_off(keep_from);
     }
 
     axum::Json(versioned(request_items))
@@ -766,8 +767,9 @@ async fn ws_connection(mut socket: WebSocket, store: Arc<StatsStore>) {
             }
             // Client disconnect
             msg = socket.recv() => {
-                if msg.is_none() {
-                    break;
+                match msg {
+                    Some(Ok(_)) => {}
+                    Some(Err(_)) | None => break,
                 }
             }
         }
@@ -1598,18 +1600,49 @@ mod tests {
 
         let base_ts = chrono::Utc::now();
 
-        let mut req = sample_entry();
-        req.id = "req-timeline-1".into();
-        req.session_id = Some("session-1".into());
-        req.timestamp = base_ts;
-        req.path = "/v1/messages".into();
-        store.add_entry(req);
+        let mut req_old = sample_entry();
+        req_old.id = "req-timeline-1".into();
+        req_old.session_id = Some("session-1".into());
+        req_old.timestamp = base_ts;
+        req_old.path = "/v1/messages".into();
+        store.add_entry(req_old);
+
+        let mut req_new = sample_entry();
+        req_new.id = "req-timeline-2".into();
+        req_new.session_id = Some("session-1".into());
+        req_new.timestamp = base_ts + chrono::Duration::milliseconds(4000);
+        req_new.path = "/v1/messages".into();
+        store.add_entry(req_new);
 
         store.upsert_local_event(&LocalEvent {
             id: "evt-timeline-1".into(),
             source_kind: SourceKind::ClaudeProject,
             source_path: "projects/demo/session.json".into(),
-            event_time_ms: (base_ts + chrono::Duration::milliseconds(500)).timestamp_millis(),
+            event_time_ms: (base_ts + chrono::Duration::milliseconds(1500)).timestamp_millis(),
+            session_hint: Some("session-1".into()),
+            event_kind: "session_touch".into(),
+            model_hint: None,
+            payload_policy: crate::correlation::PayloadPolicy::MetadataOnly,
+            payload_json: serde_json::json!({}),
+        });
+
+        store.upsert_local_event(&LocalEvent {
+            id: "evt-timeline-2".into(),
+            source_kind: SourceKind::ClaudeProject,
+            source_path: "projects/demo/session.json".into(),
+            event_time_ms: (base_ts + chrono::Duration::milliseconds(2500)).timestamp_millis(),
+            session_hint: Some("session-1".into()),
+            event_kind: "session_touch".into(),
+            model_hint: None,
+            payload_policy: crate::correlation::PayloadPolicy::MetadataOnly,
+            payload_json: serde_json::json!({}),
+        });
+
+        store.upsert_local_event(&LocalEvent {
+            id: "evt-timeline-3".into(),
+            source_kind: SourceKind::ClaudeProject,
+            source_path: "projects/demo/session.json".into(),
+            event_time_ms: (base_ts + chrono::Duration::milliseconds(3500)).timestamp_millis(),
             session_hint: Some("session-1".into()),
             event_kind: "session_touch".into(),
             model_hint: None,
@@ -1622,7 +1655,7 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::GET)
-                    .uri("/api/timeline?session_id=session-1&limit=10")
+                    .uri("/api/timeline?session_id=session-1&limit=3")
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -1635,10 +1668,48 @@ mod tests {
         assert_eq!(envelope.get("version").and_then(|v| v.as_str()), Some("2026-04-11"));
         let items: Vec<serde_json::Value> = serde_json::from_value(envelope["data"].clone()).unwrap();
 
-        assert_eq!(items.len(), 2);
-        let first_ts = items[0].get("timestamp_ms").and_then(|v| v.as_i64()).unwrap();
-        let second_ts = items[1].get("timestamp_ms").and_then(|v| v.as_i64()).unwrap();
-        assert!(first_ts <= second_ts);
+        assert_eq!(items.len(), 3);
+        let timestamps: Vec<i64> = items
+            .iter()
+            .map(|item| item.get("timestamp_ms").and_then(|v| v.as_i64()).unwrap())
+            .collect();
+
+        assert_eq!(
+            timestamps,
+            vec![
+                (base_ts + chrono::Duration::milliseconds(2500)).timestamp_millis(),
+                (base_ts + chrono::Duration::milliseconds(3500)).timestamp_millis(),
+                (base_ts + chrono::Duration::milliseconds(4000)).timestamp_millis(),
+            ]
+        );
+
+        let _ = std::fs::remove_dir_all(&log_dir);
+    }
+
+    #[tokio::test]
+    async fn ws_route_upgrade_handshake_returns_upgrade_required_in_test_harness() {
+        let log_dir = std::env::temp_dir().join(format!("claude-proxy-dashboard-ws-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&log_dir).unwrap();
+
+        let store = Arc::new(StatsStore::new(10, log_dir.clone(), 20.0, 8.0, 2_097_152, log_dir.clone()));
+        let app = build_dashboard_app(store);
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method(Method::GET)
+                    .uri("/ws")
+                    .header("connection", "upgrade")
+                    .header("upgrade", "websocket")
+                    .header("sec-websocket-version", "13")
+                    .header("sec-websocket-key", "dGhlIHNhbXBsZSBub25jZQ==")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::UPGRADE_REQUIRED);
 
         let _ = std::fs::remove_dir_all(&log_dir);
     }
