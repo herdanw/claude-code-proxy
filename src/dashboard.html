@@ -156,7 +156,7 @@
   .filter-btn:hover { border-color: var(--text-2); }
   .filter-btn.active { border-color: var(--cyan); color: var(--cyan); background: rgba(137,220,235,0.08); }
 
-  .settings-code-line { min-height: 1.6em; }
+  .settings-code-line { min-height: 1.6em; padding-left: 2px; }
   .settings-error-line {
     background: rgba(243,139,168,0.1);
     border-left: 3px solid var(--red);
@@ -165,11 +165,11 @@
   }
   .settings-line-num { min-height: 1.6em; }
   .settings-line-num-error { color: var(--red); font-weight: 700; }
-  .json-key { color: var(--blue); }
-  .json-string { color: var(--green); }
-  .json-number { color: var(--peach); }
-  .json-boolean, .json-null { color: var(--mauve); }
-  .json-punc { color: var(--text-1); }
+  .json-key { color: #89b4fa; font-weight: 500; }
+  .json-string { color: #a6e3a1; }
+  .json-number { color: #fab387; font-weight: 500; }
+  .json-boolean, .json-null { color: #cba6f7; font-weight: 600; }
+  .json-punc { color: #585b70; }
 
   table { width: 100%; border-collapse: collapse; font-size: 12px; }
   thead th {
@@ -616,12 +616,12 @@
         <span id="settings-error-text" style="font-size:11px;color:var(--red);font-family:var(--mono)"></span>
       </div>
 
-      <div style="display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;min-height:420px;background:var(--bg-1)">
+      <div style="display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;min-height:420px;max-height:75vh;background:var(--bg-1)">
         <div id="settings-line-numbers" style="width:52px;padding:12px 8px;text-align:right;background:var(--bg-2);border-right:1px solid var(--border);font-family:var(--mono);font-size:13px;line-height:1.6;color:var(--text-2);white-space:pre;user-select:none;overflow:hidden">1</div>
         <div style="position:relative;flex:1;overflow:hidden">
-          <pre id="settings-highlight" aria-hidden="true" style="position:absolute;inset:0;margin:0;padding:12px;font-family:var(--mono);font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word;pointer-events:none;overflow:auto"></pre>
+          <pre id="settings-highlight" aria-hidden="true" style="position:absolute;inset:0;margin:0;padding:12px;font-family:var(--mono);font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word;pointer-events:none;overflow:hidden"></pre>
           <label class="sr-only" for="settings-claude-json">Claude settings JSON</label>
-          <textarea id="settings-claude-json" spellcheck="false" style="position:relative;z-index:1;width:100%;height:420px;padding:12px;border:none;outline:none;resize:vertical;background:transparent;color:transparent;caret-color:var(--text-0);font-family:var(--mono);font-size:13px;line-height:1.6;white-space:pre-wrap;overflow:auto">{}</textarea>
+          <textarea id="settings-claude-json" spellcheck="false" style="position:relative;z-index:1;width:100%;height:100%;min-height:420px;max-height:75vh;padding:12px;border:none;outline:none;resize:none;background:transparent;color:transparent;caret-color:var(--text-0);font-family:var(--mono);font-size:13px;line-height:1.6;white-space:pre-wrap;overflow-y:auto;overflow-x:hidden">{}</textarea>
         </div>
       </div>
 
