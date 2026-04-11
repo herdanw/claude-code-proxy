@@ -1,4 +1,4 @@
-use crate::types::{RequestRecord, RequestStatusKind};
+use crate::types::RequestRecord;
 use parking_lot::Mutex;
 use rusqlite::{params, Connection};
 use std::path::Path;
