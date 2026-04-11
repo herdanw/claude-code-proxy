@@ -235,8 +235,8 @@ async fn proxy_handler(
 
                         // Extract usage and metadata from complete SSE lines only,
                         // preserving partial lines across chunk boundaries.
-                        process_sse_text_chunk(
-                            &String::from_utf8_lossy(&chunk),
+                        extract_sse_usage_and_metadata(
+                            &chunk,
                             &mut sse_line_buffer,
                             &mut usage_data,
                             &mut stop_reason,
@@ -377,6 +377,7 @@ fn apply_stream_usage_and_metadata(
 
 fn extract_sse_usage_and_metadata(
     chunk: &[u8],
+    line_buffer: &mut String,
     usage: &mut UsageData,
     stop_reason: &mut Option<String>,
 ) {
@@ -385,8 +386,7 @@ fn extract_sse_usage_and_metadata(
         Err(_) => return,
     };
 
-    let mut line_buffer = String::new();
-    process_sse_text_chunk(text, &mut line_buffer, usage, stop_reason);
+    process_sse_text_chunk(text, line_buffer, usage, stop_reason);
 }
 
 fn process_sse_text_chunk(
@@ -583,7 +583,8 @@ mod tests {
 
         let mut usage = UsageData::default();
         let mut stop_reason = None;
-        extract_sse_usage_and_metadata(chunk, &mut usage, &mut stop_reason);
+        let mut line_buffer = String::new();
+        extract_sse_usage_and_metadata(chunk, &mut line_buffer, &mut usage, &mut stop_reason);
 
         assert_eq!(usage.thinking_tokens, Some(7));
         assert_eq!(stop_reason.as_deref(), Some("end_turn"));
