@@ -137,6 +137,7 @@ mod tests {
             cache_read_tokens: None,
             cache_creation_tokens: None,
             thinking_tokens: None,
+            stop_reason: None,
             request_size_bytes: 100,
             response_size_bytes: 200,
             stalls: vec![],

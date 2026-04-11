@@ -104,6 +104,7 @@ async fn proxy_handler(
         cache_read_tokens: None,
         cache_creation_tokens: None,
         thinking_tokens: None,
+        stop_reason: None,
         request_size_bytes: request_size,
         response_size_bytes: 0,
         stalls: Vec::new(),
@@ -253,13 +254,7 @@ async fn proxy_handler(
             final_entry.duration_ms = start.elapsed().as_secs_f64() * 1000.0;
             final_entry.response_size_bytes = total_bytes;
             final_entry.stalls = stalls;
-            final_entry.input_tokens = usage_data.input_tokens;
-            final_entry.output_tokens = usage_data.output_tokens;
-            final_entry.cache_read_tokens = usage_data.cache_read_tokens;
-            final_entry.cache_creation_tokens = usage_data.cache_creation_tokens;
-            final_entry.thinking_tokens = usage_data.thinking_tokens;
-
-            let _ = stop_reason;
+            apply_stream_usage_and_metadata(&mut final_entry, &usage_data, stop_reason);
 
             if !final_entry.stalls.is_empty() {
                 let total_stall: f64 = final_entry.stalls.iter().map(|s| s.duration_s).sum();
@@ -358,6 +353,19 @@ struct UsageData {
     cache_read_tokens: Option<u64>,
     cache_creation_tokens: Option<u64>,
     thinking_tokens: Option<u64>,
+}
+
+fn apply_stream_usage_and_metadata(
+    final_entry: &mut RequestEntry,
+    usage_data: &UsageData,
+    stop_reason: Option<String>,
+) {
+    final_entry.input_tokens = usage_data.input_tokens;
+    final_entry.output_tokens = usage_data.output_tokens;
+    final_entry.cache_read_tokens = usage_data.cache_read_tokens;
+    final_entry.cache_creation_tokens = usage_data.cache_creation_tokens;
+    final_entry.thinking_tokens = usage_data.thinking_tokens;
+    final_entry.stop_reason = stop_reason;
 }
 
 fn extract_sse_usage_and_metadata(
@@ -551,6 +559,46 @@ mod tests {
 
         assert_eq!(usage.thinking_tokens, Some(7));
         assert_eq!(stop_reason.as_deref(), Some("end_turn"));
+    }
+
+    #[test]
+    fn apply_stream_usage_and_metadata_sets_stop_reason_on_final_entry() {
+        let mut entry = RequestEntry {
+            id: "req-stop-reason".to_string(),
+            timestamp: Utc::now(),
+            session_id: Some("session-1".to_string()),
+            method: "POST".to_string(),
+            path: "/v1/messages".to_string(),
+            model: "claude-test".to_string(),
+            stream: true,
+            status: RequestStatus::Success(200),
+            duration_ms: 10.0,
+            ttft_ms: Some(1.0),
+            input_tokens: None,
+            output_tokens: None,
+            cache_read_tokens: None,
+            cache_creation_tokens: None,
+            thinking_tokens: None,
+            stop_reason: None,
+            request_size_bytes: 10,
+            response_size_bytes: 20,
+            stalls: Vec::new(),
+            error: None,
+            anomalies: Vec::new(),
+        };
+
+        let usage = UsageData {
+            input_tokens: Some(11),
+            output_tokens: Some(22),
+            cache_read_tokens: Some(3),
+            cache_creation_tokens: Some(4),
+            thinking_tokens: Some(5),
+        };
+
+        apply_stream_usage_and_metadata(&mut entry, &usage, Some("end_turn".to_string()));
+
+        assert_eq!(entry.thinking_tokens, Some(5));
+        assert_eq!(entry.stop_reason.as_deref(), Some("end_turn"));
     }
 }
 

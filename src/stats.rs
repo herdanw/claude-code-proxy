@@ -29,6 +29,8 @@ pub struct RequestEntry {
     pub cache_read_tokens: Option<u64>,
     pub cache_creation_tokens: Option<u64>,
     pub thinking_tokens: Option<u64>,
+    #[serde(default)]
+    pub stop_reason: Option<String>,
     pub request_size_bytes: u64,
     pub response_size_bytes: u64,
     pub stalls: Vec<StallEvent>,
@@ -1609,6 +1611,7 @@ impl StatsStore {
                 cache_read_tokens INTEGER,
                 cache_creation_tokens INTEGER,
                 thinking_tokens INTEGER,
+                stop_reason TEXT,
                 request_size_bytes INTEGER NOT NULL,
                 response_size_bytes INTEGER NOT NULL,
                 error TEXT,
@@ -1714,6 +1717,12 @@ impl StatsStore {
             ",
         )
         .expect("Failed to initialize SQLite schema");
+
+        if let Err(err) = conn.execute("ALTER TABLE requests ADD COLUMN stop_reason TEXT", []) {
+            if !err.to_string().contains("duplicate column name") {
+                panic!("Failed to migrate requests.stop_reason column: {err}");
+            }
+        }
     }
 
     fn write_to_db(&self, entry: &RequestEntry) {
@@ -1764,6 +1773,7 @@ impl StatsStore {
                 cache_read_tokens,
                 cache_creation_tokens,
                 thinking_tokens,
+                stop_reason,
                 request_size_bytes,
                 response_size_bytes,
                 error,
@@ -1771,7 +1781,7 @@ impl StatsStore {
                 anomalies_json,
                 entry_json
             ) VALUES (
-                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23
+                ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24
             )
             ",
             params![
@@ -1792,6 +1802,7 @@ impl StatsStore {
                 opt_u64_to_i64(entry.cache_read_tokens),
                 opt_u64_to_i64(entry.cache_creation_tokens),
                 opt_u64_to_i64(entry.thinking_tokens),
+                entry.stop_reason,
                 entry.request_size_bytes as i64,
                 entry.response_size_bytes as i64,
                 entry.error,
@@ -4180,6 +4191,7 @@ mod tests {
             cache_read_tokens: None,
             cache_creation_tokens: None,
             thinking_tokens: None,
+            stop_reason: None,
             request_size_bytes: 128,
             response_size_bytes: 256,
             stalls: Vec::new(),

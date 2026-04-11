@@ -87,6 +87,7 @@ mod tests {
             cache_read_tokens: None,
             cache_creation_tokens: None,
             thinking_tokens: None,
+            stop_reason: None,
             request_size_bytes: 512,
             response_size_bytes: 1024,
             stalls: Vec::new(),
