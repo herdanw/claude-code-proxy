@@ -328,6 +328,20 @@ pub struct ClaudeSession {
     pub has_local_evidence: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MergedSessionSummary {
+    pub session_id: String,
+    pub presence: String,
+    pub proxy_request_count: u64,
+    pub local_event_count: u64,
+    pub proxy_error_count: u64,
+    pub proxy_stall_count: u64,
+    pub last_proxy_activity_ms: Option<i64>,
+    pub last_local_activity_ms: Option<i64>,
+    pub last_activity_ms: i64,
+    pub project_path: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 pub struct SessionDeleteDbRowsByTable {
     pub request_bodies: u64,
@@ -3042,6 +3056,91 @@ impl StatsStore {
                 .then_with(|| a.session_id.cmp(&b.session_id))
         });
         result
+    }
+
+    pub fn get_merged_sessions(&self) -> Vec<MergedSessionSummary> {
+        let proxy = self.get_sessions();
+        let local = self.get_claude_sessions();
+
+        let mut by_id = std::collections::BTreeMap::<String, MergedSessionSummary>::new();
+
+        for p in proxy {
+            let last_proxy = p.last_request.map(|ts| ts.timestamp_millis());
+            by_id.insert(
+                p.session_id.clone(),
+                MergedSessionSummary {
+                    session_id: p.session_id,
+                    presence: "proxy".to_string(),
+                    proxy_request_count: p.request_count,
+                    local_event_count: 0,
+                    proxy_error_count: p.error_count,
+                    proxy_stall_count: p.stall_count,
+                    last_proxy_activity_ms: last_proxy,
+                    last_local_activity_ms: None,
+                    last_activity_ms: last_proxy.unwrap_or(0),
+                    project_path: None,
+                },
+            );
+        }
+
+        for l in local {
+            let local_ms = l.last_local_activity_ms.max(l.last_modified_ms);
+            let row = by_id
+                .entry(l.session_id.clone())
+                .or_insert(MergedSessionSummary {
+                    session_id: l.session_id.clone(),
+                    presence: "local".to_string(),
+                    proxy_request_count: 0,
+                    local_event_count: 0,
+                    proxy_error_count: 0,
+                    proxy_stall_count: 0,
+                    last_proxy_activity_ms: None,
+                    last_local_activity_ms: None,
+                    last_activity_ms: 0,
+                    project_path: None,
+                });
+
+            if l.has_proxy_requests && row.proxy_request_count == 0 {
+                row.proxy_request_count = l.request_count;
+            }
+            row.local_event_count = if l.has_local_evidence { 1 } else { 0 };
+            row.last_local_activity_ms = if local_ms > 0 { Some(local_ms) } else { None };
+            row.project_path = if l.project_path.is_empty() {
+                None
+            } else {
+                Some(l.project_path)
+            };
+
+            row.presence = match (
+                row.last_proxy_activity_ms.is_some() || l.has_proxy_requests,
+                l.has_local_evidence,
+            ) {
+                (true, true) => "both".to_string(),
+                (true, false) => "proxy".to_string(),
+                (false, true) => "local".to_string(),
+                (false, false) => "proxy".to_string(),
+            };
+
+            let proxy_ms = row
+                .last_proxy_activity_ms
+                .unwrap_or(0)
+                .max(l.last_proxy_activity_ms);
+            if proxy_ms > 0 {
+                row.last_proxy_activity_ms = Some(proxy_ms);
+            }
+            row.last_activity_ms = row
+                .last_proxy_activity_ms
+                .unwrap_or(0)
+                .max(row.last_local_activity_ms.unwrap_or(0));
+        }
+
+        let mut out = by_id.into_values().collect::<Vec<_>>();
+        out.sort_by(|a, b| {
+            b.last_activity_ms
+                .cmp(&a.last_activity_ms)
+                .then_with(|| a.session_id.cmp(&b.session_id))
+        });
+        out
     }
 
     pub fn set_ingestion_checkpoint(&self, source_kind: SourceKind, checkpoint: &str) {
@@ -7184,6 +7283,32 @@ mod tests {
         assert_eq!(snapshot.stats.total_errors, 1);
         assert!(snapshot.coverage_start.is_some());
         assert!(snapshot.coverage_end.is_some());
+
+        let _ = std::fs::remove_dir_all(&log_dir);
+    }
+
+    #[test]
+    fn get_merged_sessions_includes_proxy_sessions_with_correct_presence() {
+        let log_dir = std::env::temp_dir().join(format!(
+            "claude-proxy-merged-sessions-{}",
+            uuid::Uuid::new_v4()
+        ));
+        std::fs::create_dir_all(&log_dir).unwrap();
+
+        let store = StatsStore::new(50, log_dir.clone(), 20.0, 8.0, 2_097_152, log_dir.clone());
+
+        let mut req = sample_entry();
+        req.id = "req-merged-1".into();
+        req.session_id = Some("s-merged".into());
+        store.add_entry(req);
+
+        let rows = store.get_merged_sessions();
+        let row = rows.iter().find(|r| r.session_id == "s-merged").unwrap();
+
+        assert_eq!(row.presence, "proxy");
+        assert_eq!(row.proxy_request_count, 1);
+        assert!(row.last_proxy_activity_ms.is_some());
+        assert!(row.last_activity_ms > 0);
 
         let _ = std::fs::remove_dir_all(&log_dir);
     }
