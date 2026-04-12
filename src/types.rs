@@ -116,12 +116,7 @@ pub const KNOWN_SSE_EVENTS: &[&str] = &[
 ];
 
 /// Known stop reasons returned by the Claude Messages API.
-pub const KNOWN_STOP_REASONS: &[&str] = &[
-    "end_turn",
-    "max_tokens",
-    "stop_sequence",
-    "tool_use",
-];
+pub const KNOWN_STOP_REASONS: &[&str] = &["end_turn", "max_tokens", "stop_sequence", "tool_use"];
 
 /// Tracks unknown / unrecognised protocol fields observed during streaming,
 /// enabling forward-compatible detection of API changes.

@@ -21,7 +21,10 @@ use store::Store;
 use tokio::time::{interval, Duration};
 
 #[derive(Parser, Debug, Clone)]
-#[command(name = "claude-proxy", about = "Ultra-fast API logging proxy for Claude Code")]
+#[command(
+    name = "claude-proxy",
+    about = "Ultra-fast API logging proxy for Claude Code"
+)]
 struct Args {
     #[arg(long)]
     target: String,
@@ -190,8 +193,14 @@ fn print_banner(
     println!("  {green}▸{reset} Target API:    {bold}{target}{reset}");
     println!("  {green}▸{reset} Proxy:         {bold}http://127.0.0.1:{proxy_port}{reset}");
     println!("  {green}▸{reset} Dashboard:     {bold}http://127.0.0.1:{dash_port}{reset}");
-    println!("  {green}▸{reset} Storage dir:   {dim}{}{reset}", storage_dir.display());
-    println!("  {green}▸{reset} SQLite DB:     {dim}{}{reset}", db_path.display());
+    println!(
+        "  {green}▸{reset} Storage dir:   {dim}{}{reset}",
+        storage_dir.display()
+    );
+    println!(
+        "  {green}▸{reset} SQLite DB:     {dim}{}{reset}",
+        db_path.display()
+    );
     println!();
     println!("  {yellow}Set in Claude Code:{reset}");
     println!("  {bold}\"ANTHROPIC_BASE_URL\": \"http://127.0.0.1:{proxy_port}\"{reset}");
@@ -296,7 +305,9 @@ mod main {
                 slow_ttft_threshold_ms: 3000.0,
                 stall_threshold_s: 0.5,
             };
-            let recent = store.list_recent_requests_for_model(&req.model, 50).unwrap();
+            let recent = store
+                .list_recent_requests_for_model(&req.model, 50)
+                .unwrap();
             let anomalies = analyzer::detect_anomalies(&req, &rules, &recent);
             store
                 .persist_analyzed_request(&request_id, &req.model, &anomalies)
@@ -312,7 +323,10 @@ mod main {
             let (store, _request_ids) = seed_unanalyzed_requests(50, model);
             run_analyzer_tick(store.clone()).await.unwrap();
 
-            let sample_count = store.get_model_profile_sample_count(model).unwrap().unwrap();
+            let sample_count = store
+                .get_model_profile_sample_count(model)
+                .unwrap()
+                .unwrap();
             assert_eq!(sample_count, 50);
 
             let observed = store.get_model_profile_observed(model).unwrap().unwrap();

@@ -38,7 +38,10 @@ mod tests {
             PayloadPolicy::from_str("redacted").unwrap(),
             PayloadPolicy::Redacted
         );
-        assert_eq!(PayloadPolicy::from_str("full").unwrap(), PayloadPolicy::Full);
+        assert_eq!(
+            PayloadPolicy::from_str("full").unwrap(),
+            PayloadPolicy::Full
+        );
         assert!(PayloadPolicy::from_str("unknown").is_err());
     }
 }

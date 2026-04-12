@@ -28,7 +28,7 @@ pub fn resolve_behavior_class(config: &ModelConfig, model_name: &str) -> Option<
 }
 
 pub fn should_auto_tune(sample_count: u64) -> bool {
-    sample_count >= 50 && sample_count % 50 == 0
+    sample_count >= 50 && sample_count.is_multiple_of(50)
 }
 
 pub fn fingerprint_parameter_names() -> Vec<&'static str> {

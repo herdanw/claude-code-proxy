@@ -51,8 +51,7 @@ pub fn compute_health_score(
     info_count: usize,
     critical_count: usize,
 ) -> i32 {
-    (100
-        - (error_count as i32 * 5)
+    (100 - (error_count as i32 * 5)
         - (warning_count as i32 * 2)
         - (info_count as i32)
         - (critical_count as i32 * 10))

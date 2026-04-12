@@ -47,10 +47,7 @@ pub fn correlate_request(
                     local_event_id: event.id.clone(),
                     link_type: CorrelationLinkType::SessionHint,
                     confidence: config.session_hint_confidence,
-                    reason: format!(
-                        "session_hint matched request session_id '{}'",
-                        session_id
-                    ),
+                    reason: format!("session_hint matched request session_id '{}'", session_id),
                     created_at_ms: chrono::Utc::now().timestamp_millis(),
                 })
                 .collect();
@@ -75,7 +72,9 @@ pub fn correlate_request(
             };
 
             let reason = match link_type {
-                CorrelationLinkType::ConfigDrift => "config drift near request timestamp".to_string(),
+                CorrelationLinkType::ConfigDrift => {
+                    "config drift near request timestamp".to_string()
+                }
                 CorrelationLinkType::CommandProximity => {
                     "shell command activity near request timestamp".to_string()
                 }
@@ -210,7 +209,11 @@ mod tests {
         config_event.source_kind = SourceKind::Config;
         config_event.event_kind = "config_change".into();
 
-        let links = correlate_request(&request, &[shell_event, config_event], &CorrelationConfig::default());
+        let links = correlate_request(
+            &request,
+            &[shell_event, config_event],
+            &CorrelationConfig::default(),
+        );
 
         assert_eq!(links.len(), 1);
         assert_eq!(links[0].local_event_id, "evt-config");

@@ -47,7 +47,10 @@ fn build_dashboard_app(store: Arc<StatsStore>) -> Router {
         .route("/api/models", get(api_models))
         .route("/api/models/:name/profile", get(api_model_profile))
         .route("/api/models/:name/comparison", get(api_model_comparison))
-        .route("/api/model-config", get(api_model_config).put(api_put_model_config))
+        .route(
+            "/api/model-config",
+            get(api_model_config).put(api_put_model_config),
+        )
         .route("/api/anomalies/recent", get(api_recent_anomalies))
         .route("/api/anomalies", get(api_anomalies))
         .route("/api/anomalies/:id", get(api_anomaly_detail))
@@ -95,7 +98,13 @@ async fn api_recent_anomalies(State(store): State<Arc<StatsStore>>) -> impl Into
 }
 
 async fn api_requests(State(store): State<Arc<StatsStore>>) -> impl IntoResponse {
-    let entries = store.get_entries(100, 0, &EntryFilter::default(), Some("timestamp_ms"), Some("desc"));
+    let entries = store.get_entries(
+        100,
+        0,
+        &EntryFilter::default(),
+        Some("timestamp_ms"),
+        Some("desc"),
+    );
     Json(entries)
 }
 
@@ -104,13 +113,23 @@ async fn api_request_detail(
     State(store): State<Arc<StatsStore>>,
 ) -> impl IntoResponse {
     let entry = store
-        .get_entries(1000, 0, &EntryFilter::default(), Some("timestamp_ms"), Some("desc"))
+        .get_entries(
+            1000,
+            0,
+            &EntryFilter::default(),
+            Some("timestamp_ms"),
+            Some("desc"),
+        )
         .into_iter()
         .find(|item| item.id == id);
 
     match entry {
         Some(entry) => (StatusCode::OK, Json(serde_json::json!(entry))).into_response(),
-        None => (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "not found" }))).into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "not found" })),
+        )
+            .into_response(),
     }
 }
 
@@ -120,7 +139,11 @@ async fn api_request_body(
 ) -> impl IntoResponse {
     match store.get_body(&id) {
         Some(body) => (StatusCode::OK, Json(serde_json::json!(body))).into_response(),
-        None => (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": "not found" }))).into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({ "error": "not found" })),
+        )
+            .into_response(),
     }
 }
 
@@ -150,7 +173,10 @@ async fn api_model_config() -> impl IntoResponse {
 }
 
 async fn api_put_model_config(Json(payload): Json<serde_json::Value>) -> impl IntoResponse {
-    (StatusCode::OK, Json(serde_json::json!({"ok": true, "data": payload})))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({"ok": true, "data": payload})),
+    )
 }
 
 async fn api_anomalies(State(store): State<Arc<StatsStore>>) -> impl IntoResponse {
@@ -268,7 +294,8 @@ async fn api_entries(
             .unwrap_or(120_000)
             .clamp(1_000, 3_600_000);
 
-        let focused = store.get_entries_with_anomaly_focus(limit, offset, &filter, anomaly_ts_ms, window_ms);
+        let focused =
+            store.get_entries_with_anomaly_focus(limit, offset, &filter, anomaly_ts_ms, window_ms);
         let within_window_count = focused.entries.len();
 
         return axum::Json(EntriesResponse {
@@ -282,7 +309,13 @@ async fn api_entries(
         });
     }
 
-    let entries = store.get_entries(limit, offset, &filter, q.sort_by.as_deref(), q.sort_order.as_deref());
+    let entries = store.get_entries(
+        limit,
+        offset,
+        &filter,
+        q.sort_by.as_deref(),
+        q.sort_order.as_deref(),
+    );
 
     axum::Json(EntriesResponse {
         entries: entries
@@ -343,7 +376,6 @@ struct ApiErrorBody {
     details: serde_json::Value,
 }
 
-
 fn settings_admin_error_status(code: &str) -> StatusCode {
     match code {
         "invalid_payload" => StatusCode::BAD_REQUEST,
@@ -352,7 +384,9 @@ fn settings_admin_error_status(code: &str) -> StatusCode {
     }
 }
 
-fn settings_admin_error_response(err: crate::settings_admin::SettingsAdminError) -> axum::response::Response {
+fn settings_admin_error_response(
+    err: crate::settings_admin::SettingsAdminError,
+) -> axum::response::Response {
     (
         settings_admin_error_status(&err.code),
         axum::Json(ApiFailureEnvelope {
@@ -395,7 +429,6 @@ async fn api_settings_current(State(store): State<Arc<StatsStore>>) -> impl Into
         Err(err) => settings_admin_error_response(err),
     }
 }
-
 
 async fn api_settings_apply(
     State(store): State<Arc<StatsStore>>,
@@ -473,10 +506,16 @@ async fn api_timeline(
     let cap = q.limit.unwrap_or(200).min(1000);
 
     let mut request_items: Vec<TimelineItem> = store
-        .get_entries(cap, 0, &EntryFilter {
-            session_id: Some(q.session_id.clone()),
-            ..EntryFilter::default()
-        }, None, None)
+        .get_entries(
+            cap,
+            0,
+            &EntryFilter {
+                session_id: Some(q.session_id.clone()),
+                ..EntryFilter::default()
+            },
+            None,
+            None,
+        )
         .into_iter()
         .filter_map(|entry| {
             let ts = entry.timestamp.timestamp_millis();
@@ -582,14 +621,20 @@ fn build_unknown_session_details(store: &StatsStore, limit: usize) -> SessionDet
             id: request.id.clone(),
             timestamp_ms: request.timestamp_ms,
             kind: "request".to_string(),
-            label: format!("request {}", request.path.clone().unwrap_or_else(|| "-".to_string())),
+            label: format!(
+                "request {}",
+                request.path.clone().unwrap_or_else(|| "-".to_string())
+            ),
             request_id: Some(request.id.clone()),
             local_event_id: None,
             conversation_id: None,
         })
         .collect::<Vec<_>>();
 
-    let proxy_error_count_total = entries.iter().filter(|entry| entry.status.is_error()).count() as u64;
+    let proxy_error_count_total = entries
+        .iter()
+        .filter(|entry| entry.status.is_error())
+        .count() as u64;
     let proxy_stall_count_total = entries.iter().map(|entry| entry.stalls.len() as u64).sum();
 
     SessionDetailsResponse {
@@ -607,7 +652,9 @@ fn build_unknown_session_details(store: &StatsStore, limit: usize) -> SessionDet
             proxy_stall_count_total,
             local_event_count_total: 0,
             conversation_message_count_total: 0,
-            last_proxy_activity_ms: entries.first().map(|entry| entry.timestamp.timestamp_millis()),
+            last_proxy_activity_ms: entries
+                .first()
+                .map(|entry| entry.timestamp.timestamp_millis()),
             last_local_activity_ms: None,
         },
         requests: request_rows,
@@ -658,7 +705,6 @@ async fn api_session_details(
     (StatusCode::OK, Json(versioned(details))).into_response()
 }
 
-
 async fn api_delete_session(
     State(store): State<Arc<StatsStore>>,
     Json(payload): Json<DeleteSessionRequest>,
@@ -673,8 +719,12 @@ async fn api_delete_session(
     }
 
     match session_admin::delete_session(&store, session_id) {
-        Ok(result) if result.blocked_live => (StatusCode::CONFLICT, Json(serde_json::json!(result))).into_response(),
-        Ok(result) if result.not_found => (StatusCode::NOT_FOUND, Json(serde_json::json!(result))).into_response(),
+        Ok(result) if result.blocked_live => {
+            (StatusCode::CONFLICT, Json(serde_json::json!(result))).into_response()
+        }
+        Ok(result) if result.not_found => {
+            (StatusCode::NOT_FOUND, Json(serde_json::json!(result))).into_response()
+        }
         Ok(result) => (StatusCode::OK, Json(serde_json::json!(result))).into_response(),
         Err(err) if err.contains("session_id is required") => (
             StatusCode::BAD_REQUEST,
@@ -711,7 +761,6 @@ async fn api_entry_body(
 async fn api_claude_sessions(State(store): State<Arc<StatsStore>>) -> impl IntoResponse {
     axum::Json(store.get_claude_sessions())
 }
-
 
 async fn api_reset_memory(State(store): State<Arc<StatsStore>>) -> impl IntoResponse {
     axum::Json(store.clear_stats())
@@ -903,8 +952,12 @@ mod tests {
         assert!(html.contains("function preselectRequestRow("));
         assert!(html.contains("applyAnomalyFocus(entry, a)"));
 
-        let update_fn_start = html.find("function updateAnomalies(").expect("updateAnomalies exists");
-        let apply_fn_start = html.find("function applyAnomalyFocus(").expect("applyAnomalyFocus exists");
+        let update_fn_start = html
+            .find("function updateAnomalies(")
+            .expect("updateAnomalies exists");
+        let apply_fn_start = html
+            .find("function applyAnomalyFocus(")
+            .expect("applyAnomalyFocus exists");
         let update_anomalies_body = &html[update_fn_start..apply_fn_start];
         assert!(!update_anomalies_body.contains("openRequestModal(entry)"));
     }
@@ -929,7 +982,8 @@ mod tests {
     async fn dashboard_html_includes_expand_anomaly_window_action() {
         let html = include_str!("dashboard.html");
         assert!(html.contains("expandAnomalyWindow("));
-        assert!(html.contains("expand-anomaly-window-btn').addEventListener('click', expandAnomalyWindow"));
+        assert!(html
+            .contains("expand-anomaly-window-btn').addEventListener('click', expandAnomalyWindow"));
         assert!(html.contains("windowMs: DEFAULT_ANOMALY_WINDOW_MS"));
         assert!(html.contains("expanded: false"));
         assert!(html.contains("params.set('anomaly_ts_ms'"));
@@ -941,7 +995,6 @@ mod tests {
         assert!(html.contains("loadEntries();"));
         assert!(html.contains("anomalyFocusHasEmptyResults"));
     }
-
 
     #[tokio::test]
     async fn dashboard_html_select_session_caches_conversation_preview_payload() {
@@ -1010,24 +1063,43 @@ mod tests {
         std::fs::create_dir_all(&storage_dir).unwrap();
         std::fs::create_dir_all(&claude_dir).unwrap();
 
-        let store = Arc::new(StatsStore::new(100, storage_dir, 20.0, 8.0, 2_097_152, claude_dir.clone()));
+        let store = Arc::new(StatsStore::new(
+            100,
+            storage_dir,
+            20.0,
+            8.0,
+            2_097_152,
+            claude_dir.clone(),
+        ));
         let admin = crate::settings_admin::SettingsAdmin::new(store);
 
         // Apply settings — writes to disk only
-        admin.apply_settings(serde_json::json!({"theme": "dark"})).unwrap();
+        admin
+            .apply_settings(serde_json::json!({"theme": "dark"}))
+            .unwrap();
 
         let current = admin.get_current().unwrap().expect("should have current");
         assert!(!current.db_file_mismatch);
         assert!(!current.file_recreated_from_db);
-        assert_eq!(current.claude_settings.raw_json, serde_json::json!({"theme": "dark"}));
+        assert_eq!(
+            current.claude_settings.raw_json,
+            serde_json::json!({"theme": "dark"})
+        );
 
         // Mutate disk directly — get_current should return disk content, no mismatch
         let settings_path = claude_dir.join("settings.json");
-        std::fs::write(&settings_path, serde_json::to_string_pretty(&serde_json::json!({"theme": "light"})).unwrap()).unwrap();
+        std::fs::write(
+            &settings_path,
+            serde_json::to_string_pretty(&serde_json::json!({"theme": "light"})).unwrap(),
+        )
+        .unwrap();
 
         let current = admin.get_current().unwrap().expect("should have current");
         assert!(!current.db_file_mismatch);
-        assert_eq!(current.claude_settings.raw_json, serde_json::json!({"theme": "light"}));
+        assert_eq!(
+            current.claude_settings.raw_json,
+            serde_json::json!({"theme": "light"})
+        );
     }
 
     #[tokio::test]
@@ -1041,18 +1113,26 @@ mod tests {
         std::fs::create_dir_all(&storage_dir).unwrap();
         std::fs::create_dir_all(&claude_dir).unwrap();
 
-        let store = Arc::new(StatsStore::new(100, storage_dir, 20.0, 8.0, 2_097_152, claude_dir.clone()));
+        let store = Arc::new(StatsStore::new(
+            100,
+            storage_dir,
+            20.0,
+            8.0,
+            2_097_152,
+            claude_dir.clone(),
+        ));
         let admin = crate::settings_admin::SettingsAdmin::new(store);
 
         // Apply then delete — should return None, not recreate from DB
-        admin.apply_settings(serde_json::json!({"model": "opus"})).unwrap();
+        admin
+            .apply_settings(serde_json::json!({"model": "opus"}))
+            .unwrap();
         let settings_path = claude_dir.join("settings.json");
         std::fs::remove_file(&settings_path).unwrap();
 
         let result = admin.get_current().unwrap();
         assert!(result.is_none(), "should return None when file is missing");
     }
-
 
     #[tokio::test]
     async fn dashboard_html_search_treats_missing_session_as_unknown() {
@@ -1066,7 +1146,6 @@ mod tests {
         let expected = "clearAnomalyFocus({ restoreSnapshot: false, reload: false });";
         assert_eq!(html.matches(expected).count(), 4);
     }
-
 
     fn sample_entry() -> RequestEntry {
         RequestEntry {
@@ -1094,28 +1173,41 @@ mod tests {
         }
     }
 
-
     #[tokio::test]
     async fn entries_endpoint_anomaly_focus_includes_metadata_and_preselection() {
-        let log_dir = std::env::temp_dir().join(format!("claude-proxy-dashboard-anomaly-metadata-{}", uuid::Uuid::new_v4()));
+        let log_dir = std::env::temp_dir().join(format!(
+            "claude-proxy-dashboard-anomaly-metadata-{}",
+            uuid::Uuid::new_v4()
+        ));
         std::fs::create_dir_all(&log_dir).unwrap();
 
-        let store = Arc::new(StatsStore::new(20, log_dir.clone(), 20.0, 8.0, 2_097_152, log_dir.clone()));
+        let store = Arc::new(StatsStore::new(
+            20,
+            log_dir.clone(),
+            20.0,
+            8.0,
+            2_097_152,
+            log_dir.clone(),
+        ));
         let anomaly_ts_ms = chrono::Utc::now().timestamp_millis();
 
         let mut nearest = sample_entry();
         nearest.id = "req-nearest".into();
-        nearest.timestamp = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(anomaly_ts_ms + 150).unwrap();
+        nearest.timestamp =
+            chrono::DateTime::<chrono::Utc>::from_timestamp_millis(anomaly_ts_ms + 150).unwrap();
         store.add_entry(nearest);
 
         let mut second = sample_entry();
         second.id = "req-second".into();
-        second.timestamp = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(anomaly_ts_ms - 5_000).unwrap();
+        second.timestamp =
+            chrono::DateTime::<chrono::Utc>::from_timestamp_millis(anomaly_ts_ms - 5_000).unwrap();
         store.add_entry(second);
 
         let mut outside_window = sample_entry();
         outside_window.id = "req-outside".into();
-        outside_window.timestamp = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(anomaly_ts_ms + 130_000).unwrap();
+        outside_window.timestamp =
+            chrono::DateTime::<chrono::Utc>::from_timestamp_millis(anomaly_ts_ms + 130_000)
+                .unwrap();
         store.add_entry(outside_window);
 
         let app = build_dashboard_app(store);
@@ -1123,7 +1215,9 @@ mod tests {
             .oneshot(
                 Request::builder()
                     .method(Method::GET)
-                    .uri(format!("/api/entries?anomaly_ts_ms={anomaly_ts_ms}&window_ms=120000"))
+                    .uri(format!(
+                        "/api/entries?anomaly_ts_ms={anomaly_ts_ms}&window_ms=120000"
+                    ))
                     .body(Body::empty())
                     .unwrap(),
             )
@@ -1131,7 +1225,9 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
         let entries = payload.get("entries").and_then(|v| v.as_array()).unwrap();
@@ -1144,15 +1240,26 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            payload.get("preselected_request_id").and_then(|v| v.as_str()),
+            payload
+                .get("preselected_request_id")
+                .and_then(|v| v.as_str()),
             Some(first_id)
         );
 
-        let anomaly_focus = payload.get("anomaly_focus").and_then(|v| v.as_object()).unwrap();
-        assert_eq!(anomaly_focus.get("window_ms").and_then(|v| v.as_i64()), Some(120_000));
+        let anomaly_focus = payload
+            .get("anomaly_focus")
+            .and_then(|v| v.as_object())
+            .unwrap();
+        assert_eq!(
+            anomaly_focus.get("window_ms").and_then(|v| v.as_i64()),
+            Some(120_000)
+        );
 
         for entry in entries {
-            assert_eq!(entry.get("within_window").and_then(|v| v.as_bool()), Some(true));
+            assert_eq!(
+                entry.get("within_window").and_then(|v| v.as_bool()),
+                Some(true)
+            );
             let distance = entry.get("distance_ms").and_then(|v| v.as_i64()).unwrap();
             assert!(distance <= 120_000);
         }
@@ -1161,10 +1268,20 @@ mod tests {
     }
     #[tokio::test]
     async fn entries_endpoint_without_anomaly_focus_returns_null_focus() {
-        let log_dir = std::env::temp_dir().join(format!("claude-proxy-dashboard-no-anomaly-envelope-{}", uuid::Uuid::new_v4()));
+        let log_dir = std::env::temp_dir().join(format!(
+            "claude-proxy-dashboard-no-anomaly-envelope-{}",
+            uuid::Uuid::new_v4()
+        ));
         std::fs::create_dir_all(&log_dir).unwrap();
 
-        let store = Arc::new(StatsStore::new(10, log_dir.clone(), 20.0, 8.0, 2_097_152, log_dir.clone()));
+        let store = Arc::new(StatsStore::new(
+            10,
+            log_dir.clone(),
+            20.0,
+            8.0,
+            2_097_152,
+            log_dir.clone(),
+        ));
         store.add_entry(sample_entry());
 
         let app = build_dashboard_app(store);
@@ -1180,7 +1297,9 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
         assert!(payload.get("entries").and_then(|v| v.as_array()).is_some());
@@ -1200,7 +1319,14 @@ mod tests {
         ));
         std::fs::create_dir_all(&log_dir).unwrap();
 
-        let store = Arc::new(StatsStore::new(10, log_dir.clone(), 20.0, 8.0, 2_097_152, log_dir.clone()));
+        let store = Arc::new(StatsStore::new(
+            10,
+            log_dir.clone(),
+            20.0,
+            8.0,
+            2_097_152,
+            log_dir.clone(),
+        ));
         let mut entry = sample_entry();
         entry.id = "req-invalid-anomaly-fallback".into();
         store.add_entry(entry);
@@ -1218,7 +1344,9 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
         assert!(payload.get("entries").and_then(|v| v.as_array()).is_some());
@@ -1232,10 +1360,20 @@ mod tests {
 
     #[tokio::test]
     async fn entry_body_endpoint_missing_request_returns_404() {
-        let log_dir = std::env::temp_dir().join(format!("claude-proxy-dashboard-entry-body-{}", uuid::Uuid::new_v4()));
+        let log_dir = std::env::temp_dir().join(format!(
+            "claude-proxy-dashboard-entry-body-{}",
+            uuid::Uuid::new_v4()
+        ));
         std::fs::create_dir_all(&log_dir).unwrap();
 
-        let store = Arc::new(StatsStore::new(10, log_dir.clone(), 20.0, 8.0, 2_097_152, log_dir.clone()));
+        let store = Arc::new(StatsStore::new(
+            10,
+            log_dir.clone(),
+            20.0,
+            8.0,
+            2_097_152,
+            log_dir.clone(),
+        ));
         let app = build_dashboard_app(store);
 
         let response = app
@@ -1250,19 +1388,34 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(payload.get("error").and_then(|v| v.as_str()), Some("not found"));
+        assert_eq!(
+            payload.get("error").and_then(|v| v.as_str()),
+            Some("not found")
+        );
 
         let _ = std::fs::remove_dir_all(&log_dir);
     }
 
     #[tokio::test]
     async fn session_details_endpoint_unknown_session_includes_null_session_requests() {
-        let log_dir = std::env::temp_dir().join(format!("claude-proxy-dashboard-session-details-unknown-{}", uuid::Uuid::new_v4()));
+        let log_dir = std::env::temp_dir().join(format!(
+            "claude-proxy-dashboard-session-details-unknown-{}",
+            uuid::Uuid::new_v4()
+        ));
         std::fs::create_dir_all(&log_dir).unwrap();
 
-        let store = Arc::new(StatsStore::new(10, log_dir.clone(), 20.0, 8.0, 2_097_152, log_dir.clone()));
+        let store = Arc::new(StatsStore::new(
+            10,
+            log_dir.clone(),
+            20.0,
+            8.0,
+            2_097_152,
+            log_dir.clone(),
+        ));
         let mut entry = sample_entry();
         entry.id = "req-unknown-session".into();
         entry.session_id = None;
@@ -1281,11 +1434,19 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let envelope: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(envelope.get("version").and_then(|v| v.as_str()), Some("2026-04-11"));
+        assert_eq!(
+            envelope.get("version").and_then(|v| v.as_str()),
+            Some("2026-04-11")
+        );
         let payload = &envelope["data"];
-        assert_eq!(payload.get("session_id").and_then(|v| v.as_str()), Some("unknown"));
+        assert_eq!(
+            payload.get("session_id").and_then(|v| v.as_str()),
+            Some("unknown")
+        );
         assert!(payload
             .get("requests")
             .and_then(|v| v.as_array())
@@ -1296,12 +1457,25 @@ mod tests {
 
     #[tokio::test]
     async fn delete_session_endpoint_live_session_returns_conflict() {
-        let log_dir = std::env::temp_dir().join(format!("claude-proxy-dashboard-delete-session-live-{}", uuid::Uuid::new_v4()));
-        let claude_dir = std::env::temp_dir().join(format!("claude-proxy-dashboard-delete-session-live-claude-{}", uuid::Uuid::new_v4()));
+        let log_dir = std::env::temp_dir().join(format!(
+            "claude-proxy-dashboard-delete-session-live-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let claude_dir = std::env::temp_dir().join(format!(
+            "claude-proxy-dashboard-delete-session-live-claude-{}",
+            uuid::Uuid::new_v4()
+        ));
         std::fs::create_dir_all(&log_dir).unwrap();
         std::fs::create_dir_all(&claude_dir).unwrap();
 
-        let store = Arc::new(StatsStore::new(10, log_dir.clone(), 20.0, 8.0, 2_097_152, claude_dir.clone()));
+        let store = Arc::new(StatsStore::new(
+            10,
+            log_dir.clone(),
+            20.0,
+            8.0,
+            2_097_152,
+            claude_dir.clone(),
+        ));
         let mut pending = sample_entry();
         pending.id = "req-live-session".into();
         pending.session_id = Some("session-live".into());
@@ -1322,10 +1496,18 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::CONFLICT);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(payload.get("blocked_live").and_then(|v| v.as_bool()), Some(true));
-        assert_eq!(payload.get("session_id").and_then(|v| v.as_str()), Some("session-live"));
+        assert_eq!(
+            payload.get("blocked_live").and_then(|v| v.as_bool()),
+            Some(true)
+        );
+        assert_eq!(
+            payload.get("session_id").and_then(|v| v.as_str()),
+            Some("session-live")
+        );
 
         let _ = std::fs::remove_dir_all(&log_dir);
         let _ = std::fs::remove_dir_all(&claude_dir);
@@ -1333,12 +1515,25 @@ mod tests {
 
     #[tokio::test]
     async fn delete_session_endpoint_missing_session_returns_not_found_result() {
-        let log_dir = std::env::temp_dir().join(format!("claude-proxy-dashboard-delete-session-{}", uuid::Uuid::new_v4()));
-        let claude_dir = std::env::temp_dir().join(format!("claude-proxy-dashboard-delete-session-claude-{}", uuid::Uuid::new_v4()));
+        let log_dir = std::env::temp_dir().join(format!(
+            "claude-proxy-dashboard-delete-session-{}",
+            uuid::Uuid::new_v4()
+        ));
+        let claude_dir = std::env::temp_dir().join(format!(
+            "claude-proxy-dashboard-delete-session-claude-{}",
+            uuid::Uuid::new_v4()
+        ));
         std::fs::create_dir_all(&log_dir).unwrap();
         std::fs::create_dir_all(&claude_dir).unwrap();
 
-        let store = Arc::new(StatsStore::new(10, log_dir.clone(), 20.0, 8.0, 2_097_152, claude_dir.clone()));
+        let store = Arc::new(StatsStore::new(
+            10,
+            log_dir.clone(),
+            20.0,
+            8.0,
+            2_097_152,
+            claude_dir.clone(),
+        ));
         let app = build_dashboard_app(store);
 
         let response = app
@@ -1354,10 +1549,18 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::NOT_FOUND);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(payload.get("not_found").and_then(|v| v.as_bool()), Some(true));
-        assert_eq!(payload.get("session_id").and_then(|v| v.as_str()), Some("missing-session"));
+        assert_eq!(
+            payload.get("not_found").and_then(|v| v.as_bool()),
+            Some(true)
+        );
+        assert_eq!(
+            payload.get("session_id").and_then(|v| v.as_str()),
+            Some("missing-session")
+        );
 
         let _ = std::fs::remove_dir_all(&log_dir);
         let _ = std::fs::remove_dir_all(&claude_dir);
@@ -1365,10 +1568,20 @@ mod tests {
 
     #[tokio::test]
     async fn delete_session_endpoint_empty_session_id_returns_bad_request() {
-        let log_dir = std::env::temp_dir().join(format!("claude-proxy-dashboard-delete-session-empty-{}", uuid::Uuid::new_v4()));
+        let log_dir = std::env::temp_dir().join(format!(
+            "claude-proxy-dashboard-delete-session-empty-{}",
+            uuid::Uuid::new_v4()
+        ));
         std::fs::create_dir_all(&log_dir).unwrap();
 
-        let store = Arc::new(StatsStore::new(10, log_dir.clone(), 20.0, 8.0, 2_097_152, log_dir.clone()));
+        let store = Arc::new(StatsStore::new(
+            10,
+            log_dir.clone(),
+            20.0,
+            8.0,
+            2_097_152,
+            log_dir.clone(),
+        ));
         let app = build_dashboard_app(store);
 
         let response = app
@@ -1384,19 +1597,34 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(payload.get("error").and_then(|v| v.as_str()), Some("session_id is required"));
+        assert_eq!(
+            payload.get("error").and_then(|v| v.as_str()),
+            Some("session_id is required")
+        );
 
         let _ = std::fs::remove_dir_all(&log_dir);
     }
 
     #[tokio::test]
     async fn session_details_endpoint_empty_session_id_returns_bad_request() {
-        let log_dir = std::env::temp_dir().join(format!("claude-proxy-dashboard-session-details-empty-{}", uuid::Uuid::new_v4()));
+        let log_dir = std::env::temp_dir().join(format!(
+            "claude-proxy-dashboard-session-details-empty-{}",
+            uuid::Uuid::new_v4()
+        ));
         std::fs::create_dir_all(&log_dir).unwrap();
 
-        let store = Arc::new(StatsStore::new(10, log_dir.clone(), 20.0, 8.0, 2_097_152, log_dir.clone()));
+        let store = Arc::new(StatsStore::new(
+            10,
+            log_dir.clone(),
+            20.0,
+            8.0,
+            2_097_152,
+            log_dir.clone(),
+        ));
         let app = build_dashboard_app(store);
 
         let response = app
@@ -1411,21 +1639,41 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(payload.get("error").and_then(|v| v.as_str()), Some("session_id is required"));
+        assert_eq!(
+            payload.get("error").and_then(|v| v.as_str()),
+            Some("session_id is required")
+        );
 
         let _ = std::fs::remove_dir_all(&log_dir);
     }
 
     #[tokio::test]
     async fn reset_memory_endpoint_clears_entries_but_keeps_persisted_data() {
-        let log_dir = std::env::temp_dir().join(format!("claude-proxy-dashboard-memory-test-{}", uuid::Uuid::new_v4()));
+        let log_dir = std::env::temp_dir().join(format!(
+            "claude-proxy-dashboard-memory-test-{}",
+            uuid::Uuid::new_v4()
+        ));
         std::fs::create_dir_all(&log_dir).unwrap();
 
-        let store = Arc::new(StatsStore::new(100, log_dir.clone(), 20.0, 8.0, 2_097_152, log_dir.clone()));
+        let store = Arc::new(StatsStore::new(
+            100,
+            log_dir.clone(),
+            20.0,
+            8.0,
+            2_097_152,
+            log_dir.clone(),
+        ));
         store.add_entry(sample_entry());
-        assert_eq!(store.get_entries(10, 0, &EntryFilter::default(), None, None).len(), 1);
+        assert_eq!(
+            store
+                .get_entries(10, 0, &EntryFilter::default(), None, None)
+                .len(),
+            1
+        );
         assert_eq!(store.persisted_entry_count(), 1);
 
         let app = build_dashboard_app(store.clone());
@@ -1442,7 +1690,12 @@ mod tests {
 
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(store.get_live_stats().total_requests, 0);
-        assert_eq!(store.get_entries(10, 0, &EntryFilter::default(), None, None).len(), 1);
+        assert_eq!(
+            store
+                .get_entries(10, 0, &EntryFilter::default(), None, None)
+                .len(),
+            1
+        );
         assert_eq!(store.persisted_entry_count(), 1);
         assert!(store.database_path().exists());
 
@@ -1451,12 +1704,27 @@ mod tests {
 
     #[tokio::test]
     async fn reset_endpoint_clears_entries_and_database_rows() {
-        let log_dir = std::env::temp_dir().join(format!("claude-proxy-dashboard-test-{}", uuid::Uuid::new_v4()));
+        let log_dir = std::env::temp_dir().join(format!(
+            "claude-proxy-dashboard-test-{}",
+            uuid::Uuid::new_v4()
+        ));
         std::fs::create_dir_all(&log_dir).unwrap();
 
-        let store = Arc::new(StatsStore::new(100, log_dir.clone(), 20.0, 8.0, 2_097_152, log_dir.clone()));
+        let store = Arc::new(StatsStore::new(
+            100,
+            log_dir.clone(),
+            20.0,
+            8.0,
+            2_097_152,
+            log_dir.clone(),
+        ));
         store.add_entry(sample_entry());
-        assert_eq!(store.get_entries(10, 0, &EntryFilter::default(), None, None).len(), 1);
+        assert_eq!(
+            store
+                .get_entries(10, 0, &EntryFilter::default(), None, None)
+                .len(),
+            1
+        );
         assert_eq!(store.persisted_entry_count(), 1);
 
         let app = build_dashboard_app(store.clone());
@@ -1472,7 +1740,9 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
-        assert!(store.get_entries(10, 0, &EntryFilter::default(), None, None).is_empty());
+        assert!(store
+            .get_entries(10, 0, &EntryFilter::default(), None, None)
+            .is_empty());
         assert_eq!(store.persisted_entry_count(), 0);
         assert!(store.database_path().exists());
 
@@ -1481,10 +1751,20 @@ mod tests {
 
     #[tokio::test]
     async fn stats_endpoint_returns_live_snapshot_by_default() {
-        let log_dir = std::env::temp_dir().join(format!("claude-proxy-dashboard-stats-live-{}", uuid::Uuid::new_v4()));
+        let log_dir = std::env::temp_dir().join(format!(
+            "claude-proxy-dashboard-stats-live-{}",
+            uuid::Uuid::new_v4()
+        ));
         std::fs::create_dir_all(&log_dir).unwrap();
 
-        let store = Arc::new(StatsStore::new(10, log_dir.clone(), 20.0, 8.0, 2_097_152, log_dir.clone()));
+        let store = Arc::new(StatsStore::new(
+            10,
+            log_dir.clone(),
+            20.0,
+            8.0,
+            2_097_152,
+            log_dir.clone(),
+        ));
         store.add_entry(sample_entry());
 
         let app = build_dashboard_app(store);
@@ -1500,7 +1780,9 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let snapshot: StatsSnapshot = serde_json::from_slice(&body).unwrap();
 
         assert_eq!(snapshot.mode, StatsMode::Live);
@@ -1512,10 +1794,20 @@ mod tests {
 
     #[tokio::test]
     async fn stats_endpoint_returns_historical_snapshot() {
-        let log_dir = std::env::temp_dir().join(format!("claude-proxy-dashboard-stats-historical-{}", uuid::Uuid::new_v4()));
+        let log_dir = std::env::temp_dir().join(format!(
+            "claude-proxy-dashboard-stats-historical-{}",
+            uuid::Uuid::new_v4()
+        ));
         std::fs::create_dir_all(&log_dir).unwrap();
 
-        let store = Arc::new(StatsStore::new(1, log_dir.clone(), 20.0, 8.0, 2_097_152, log_dir.clone()));
+        let store = Arc::new(StatsStore::new(
+            1,
+            log_dir.clone(),
+            20.0,
+            8.0,
+            2_097_152,
+            log_dir.clone(),
+        ));
 
         let mut first = sample_entry();
         first.id = "dashboard-live-1".into();
@@ -1542,7 +1834,9 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let snapshot: StatsSnapshot = serde_json::from_slice(&body).unwrap();
 
         assert_eq!(snapshot.mode, StatsMode::Historical);
@@ -1556,10 +1850,20 @@ mod tests {
 
     #[tokio::test]
     async fn explanations_endpoint_returns_rows() {
-        let log_dir = std::env::temp_dir().join(format!("claude-proxy-dashboard-explanations-{}", uuid::Uuid::new_v4()));
+        let log_dir = std::env::temp_dir().join(format!(
+            "claude-proxy-dashboard-explanations-{}",
+            uuid::Uuid::new_v4()
+        ));
         std::fs::create_dir_all(&log_dir).unwrap();
 
-        let store = Arc::new(StatsStore::new(10, log_dir.clone(), 20.0, 8.0, 2_097_152, log_dir.clone()));
+        let store = Arc::new(StatsStore::new(
+            10,
+            log_dir.clone(),
+            20.0,
+            8.0,
+            2_097_152,
+            log_dir.clone(),
+        ));
 
         let mut req = sample_entry();
         req.id = "req-1".into();
@@ -1590,9 +1894,14 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let envelope: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(envelope.get("version").and_then(|v| v.as_str()), Some("2026-04-11"));
+        assert_eq!(
+            envelope.get("version").and_then(|v| v.as_str()),
+            Some("2026-04-11")
+        );
         let rows: Vec<Explanation> = serde_json::from_value(envelope["data"].clone()).unwrap();
 
         assert_eq!(rows.len(), 1);
@@ -1604,10 +1913,20 @@ mod tests {
 
     #[tokio::test]
     async fn timeline_endpoint_returns_ordered_events() {
-        let log_dir = std::env::temp_dir().join(format!("claude-proxy-dashboard-timeline-{}", uuid::Uuid::new_v4()));
+        let log_dir = std::env::temp_dir().join(format!(
+            "claude-proxy-dashboard-timeline-{}",
+            uuid::Uuid::new_v4()
+        ));
         std::fs::create_dir_all(&log_dir).unwrap();
 
-        let store = Arc::new(StatsStore::new(10, log_dir.clone(), 20.0, 8.0, 2_097_152, log_dir.clone()));
+        let store = Arc::new(StatsStore::new(
+            10,
+            log_dir.clone(),
+            20.0,
+            8.0,
+            2_097_152,
+            log_dir.clone(),
+        ));
 
         let base_ts = chrono::Utc::now();
 
@@ -1674,10 +1993,16 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let envelope: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(envelope.get("version").and_then(|v| v.as_str()), Some("2026-04-11"));
-        let items: Vec<serde_json::Value> = serde_json::from_value(envelope["data"].clone()).unwrap();
+        assert_eq!(
+            envelope.get("version").and_then(|v| v.as_str()),
+            Some("2026-04-11")
+        );
+        let items: Vec<serde_json::Value> =
+            serde_json::from_value(envelope["data"].clone()).unwrap();
 
         assert_eq!(items.len(), 3);
         let timestamps: Vec<i64> = items
@@ -1699,10 +2024,20 @@ mod tests {
 
     #[tokio::test]
     async fn ws_route_upgrade_handshake_returns_upgrade_required_in_test_harness() {
-        let log_dir = std::env::temp_dir().join(format!("claude-proxy-dashboard-ws-{}", uuid::Uuid::new_v4()));
+        let log_dir = std::env::temp_dir().join(format!(
+            "claude-proxy-dashboard-ws-{}",
+            uuid::Uuid::new_v4()
+        ));
         std::fs::create_dir_all(&log_dir).unwrap();
 
-        let store = Arc::new(StatsStore::new(10, log_dir.clone(), 20.0, 8.0, 2_097_152, log_dir.clone()));
+        let store = Arc::new(StatsStore::new(
+            10,
+            log_dir.clone(),
+            20.0,
+            8.0,
+            2_097_152,
+            log_dir.clone(),
+        ));
         let app = build_dashboard_app(store);
 
         let response = app
@@ -1727,10 +2062,20 @@ mod tests {
 
     #[tokio::test]
     async fn session_graph_endpoint_returns_graph_payload() {
-        let log_dir = std::env::temp_dir().join(format!("claude-proxy-dashboard-session-graph-{}", uuid::Uuid::new_v4()));
+        let log_dir = std::env::temp_dir().join(format!(
+            "claude-proxy-dashboard-session-graph-{}",
+            uuid::Uuid::new_v4()
+        ));
         std::fs::create_dir_all(&log_dir).unwrap();
 
-        let store = Arc::new(StatsStore::new(20, log_dir.clone(), 20.0, 8.0, 2_097_152, log_dir.clone()));
+        let store = Arc::new(StatsStore::new(
+            20,
+            log_dir.clone(),
+            20.0,
+            8.0,
+            2_097_152,
+            log_dir.clone(),
+        ));
 
         let mut req = sample_entry();
         req.id = "req-graph-1".into();
@@ -1783,9 +2128,14 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let envelope: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(envelope.get("version").and_then(|v| v.as_str()), Some("2026-04-11"));
+        assert_eq!(
+            envelope.get("version").and_then(|v| v.as_str()),
+            Some("2026-04-11")
+        );
         let graph: SessionGraph = serde_json::from_value(envelope["data"].clone()).unwrap();
 
         assert_eq!(graph.session_id, "s-1");
@@ -1797,10 +2147,20 @@ mod tests {
 
     #[tokio::test]
     async fn correlations_endpoint_returns_links_for_request() {
-        let log_dir = std::env::temp_dir().join(format!("claude-proxy-dashboard-correlations-{}", uuid::Uuid::new_v4()));
+        let log_dir = std::env::temp_dir().join(format!(
+            "claude-proxy-dashboard-correlations-{}",
+            uuid::Uuid::new_v4()
+        ));
         std::fs::create_dir_all(&log_dir).unwrap();
 
-        let store = Arc::new(StatsStore::new(10, log_dir.clone(), 20.0, 8.0, 2_097_152, log_dir.clone()));
+        let store = Arc::new(StatsStore::new(
+            10,
+            log_dir.clone(),
+            20.0,
+            8.0,
+            2_097_152,
+            log_dir.clone(),
+        ));
 
         let mut req_1 = sample_entry();
         req_1.id = "req-1".into();
@@ -1867,11 +2227,20 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let envelope: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(envelope.get("version").and_then(|v| v.as_str()), Some("2026-04-11"));
-        assert!(envelope.get("generated_at_ms").and_then(|v| v.as_i64()).is_some());
-        let links: Vec<RequestCorrelation> = serde_json::from_value(envelope["data"].clone()).unwrap();
+        assert_eq!(
+            envelope.get("version").and_then(|v| v.as_str()),
+            Some("2026-04-11")
+        );
+        assert!(envelope
+            .get("generated_at_ms")
+            .and_then(|v| v.as_i64())
+            .is_some());
+        let links: Vec<RequestCorrelation> =
+            serde_json::from_value(envelope["data"].clone()).unwrap();
 
         assert_eq!(links.len(), 1);
         assert_eq!(links[0].id, "corr-1");
@@ -1952,7 +2321,14 @@ mod tests {
         ));
         std::fs::create_dir_all(&log_dir).unwrap();
 
-        let store = Arc::new(StatsStore::new(20, log_dir.clone(), 20.0, 8.0, 2_097_152, log_dir.clone()));
+        let store = Arc::new(StatsStore::new(
+            20,
+            log_dir.clone(),
+            20.0,
+            8.0,
+            2_097_152,
+            log_dir.clone(),
+        ));
 
         let mut req = sample_entry();
         req.id = "req-merged-endpoint-1".into();
@@ -1972,12 +2348,24 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
         let payload: serde_json::Value = serde_json::from_slice(&body).unwrap();
 
-        assert_eq!(payload.get("version").and_then(|v| v.as_str()), Some("2026-04-11"));
-        assert!(payload.get("generated_at_ms").and_then(|v| v.as_i64()).is_some());
-        assert!(payload.get("data").and_then(|v| v.as_array()).map(|arr| !arr.is_empty()).unwrap_or(false));
+        assert_eq!(
+            payload.get("version").and_then(|v| v.as_str()),
+            Some("2026-04-11")
+        );
+        assert!(payload
+            .get("generated_at_ms")
+            .and_then(|v| v.as_i64())
+            .is_some());
+        assert!(payload
+            .get("data")
+            .and_then(|v| v.as_array())
+            .map(|arr| !arr.is_empty())
+            .unwrap_or(false));
 
         let _ = std::fs::remove_dir_all(&log_dir);
     }

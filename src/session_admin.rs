@@ -116,9 +116,7 @@ fn resolve_confident_folder_candidate_from_aggregated_session(
     session_id: &str,
     skipped_folders: &mut Vec<String>,
 ) -> Option<PathBuf> {
-    let Some(session) = aggregated_session else {
-        return None;
-    };
+    let session = aggregated_session?;
 
     if session.project_paths.len() != 1 {
         if session.project_paths.len() > 1 {
@@ -594,7 +592,12 @@ mod tests {
         assert!(proj.exists());
 
         assert_eq!(store.persisted_entry_count(), 1);
-        assert_eq!(store.get_local_events(Some("session-live-aggregated"), 10).len(), 1);
+        assert_eq!(
+            store
+                .get_local_events(Some("session-live-aggregated"), 10)
+                .len(),
+            1
+        );
 
         let _ = std::fs::remove_dir_all(&root);
     }

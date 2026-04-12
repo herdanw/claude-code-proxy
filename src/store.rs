@@ -321,7 +321,10 @@ impl Store {
         }
     }
 
-    pub fn list_unanalyzed_requests(&self, limit: usize) -> Result<Vec<RequestRecord>, rusqlite::Error> {
+    pub fn list_unanalyzed_requests(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<RequestRecord>, rusqlite::Error> {
         let db = self.db.lock();
         let mut stmt = db.prepare(
             r#"SELECT id, session_id, timestamp_ms, method, path, model, stream, status_code, status_kind,
@@ -497,7 +500,10 @@ impl Store {
         Ok(sample_count.max(0) as u64)
     }
 
-    pub fn compute_model_observed_stats(&self, model: &str) -> Result<serde_json::Value, rusqlite::Error> {
+    pub fn compute_model_observed_stats(
+        &self,
+        model: &str,
+    ) -> Result<serde_json::Value, rusqlite::Error> {
         let db = self.db.lock();
 
         let (sample_count, avg_ttft_ms): (i64, Option<f64>) = db.query_row(
@@ -522,9 +528,13 @@ impl Store {
         Ok(count.max(0) as u64)
     }
 
-    pub fn get_model_profile_sample_count(&self, model: &str) -> Result<Option<u64>, rusqlite::Error> {
+    pub fn get_model_profile_sample_count(
+        &self,
+        model: &str,
+    ) -> Result<Option<u64>, rusqlite::Error> {
         let db = self.db.lock();
-        let mut stmt = db.prepare("SELECT sample_count FROM model_profiles WHERE model_name = ?1")?;
+        let mut stmt =
+            db.prepare("SELECT sample_count FROM model_profiles WHERE model_name = ?1")?;
         let mut rows = stmt.query(params![model])?;
         if let Some(row) = rows.next()? {
             let sample_count: i64 = row.get(0)?;
@@ -534,13 +544,18 @@ impl Store {
         }
     }
 
-    pub fn get_model_profile_observed(&self, model: &str) -> Result<Option<serde_json::Value>, rusqlite::Error> {
+    pub fn get_model_profile_observed(
+        &self,
+        model: &str,
+    ) -> Result<Option<serde_json::Value>, rusqlite::Error> {
         let db = self.db.lock();
-        let mut stmt = db.prepare("SELECT observed_json FROM model_profiles WHERE model_name = ?1")?;
+        let mut stmt =
+            db.prepare("SELECT observed_json FROM model_profiles WHERE model_name = ?1")?;
         let mut rows = stmt.query(params![model])?;
         if let Some(row) = rows.next()? {
             let observed_json: String = row.get(0)?;
-            let observed = serde_json::from_str(&observed_json).unwrap_or_else(|_| serde_json::json!({}));
+            let observed =
+                serde_json::from_str(&observed_json).unwrap_or_else(|_| serde_json::json!({}));
             Ok(Some(observed))
         } else {
             Ok(None)
@@ -605,9 +620,7 @@ mod tests {
             .unwrap_err();
 
         assert!(matches!(err, rusqlite::Error::SqliteFailure(_, _)));
-        assert!(err
-            .to_string()
-            .contains("FOREIGN KEY constraint failed"));
+        assert!(err.to_string().contains("FOREIGN KEY constraint failed"));
     }
 
     #[test]
@@ -659,8 +672,11 @@ mod tests {
         assert_eq!(old_term_count, 0);
         assert_eq!(new_term_count, 1);
 
-        db.execute("DELETE FROM request_bodies WHERE request_id = ?1", params!["req-1"])
-            .unwrap();
+        db.execute(
+            "DELETE FROM request_bodies WHERE request_id = ?1",
+            params!["req-1"],
+        )
+        .unwrap();
 
         let deleted_term_count: i64 = db
             .query_row(
@@ -783,7 +799,10 @@ mod tests {
             )
             .unwrap();
 
-        assert!(store.search_request_ids("old_term", 10, 0).unwrap().is_empty());
+        assert!(store
+            .search_request_ids("old_term", 10, 0)
+            .unwrap()
+            .is_empty());
         assert_eq!(
             store.search_request_ids("new_term", 10, 0).unwrap(),
             vec!["req-replace".to_string()]
@@ -846,7 +865,9 @@ mod tests {
             .unwrap();
 
         assert!(store.search_request_ids("", 10, 0).unwrap().is_empty());
-        assert!(store.search_request_ids("   \t\n", 10, 0).unwrap().is_empty());
+        assert!(store
+            .search_request_ids("   \t\n", 10, 0)
+            .unwrap()
+            .is_empty());
     }
 }
-
