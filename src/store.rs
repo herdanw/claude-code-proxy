@@ -1,4 +1,6 @@
-use crate::types::RequestRecord;
+use crate::analyzer::DetectedAnomaly;
+use crate::types::{RequestRecord, RequestStatusKind};
+use chrono::{TimeZone, Utc};
 use parking_lot::Mutex;
 use rusqlite::{params, Connection};
 use std::convert::TryFrom;
@@ -251,6 +253,211 @@ impl Store {
             out.push(row?);
         }
         Ok(out)
+    }
+
+    fn status_kind_from_db(value: &str) -> RequestStatusKind {
+        match value {
+            "success" => RequestStatusKind::Success,
+            "client_error" => RequestStatusKind::ClientError,
+            "server_error" => RequestStatusKind::ServerError,
+            "timeout" => RequestStatusKind::Timeout,
+            "connection_error" => RequestStatusKind::ConnectionError,
+            "proxy_error" => RequestStatusKind::ProxyError,
+            _ => RequestStatusKind::Pending,
+        }
+    }
+
+    fn row_to_request(row: &rusqlite::Row<'_>) -> Result<RequestRecord, rusqlite::Error> {
+        let ts_ms: i64 = row.get("timestamp_ms")?;
+        let timestamp = Utc
+            .timestamp_millis_opt(ts_ms)
+            .single()
+            .unwrap_or_else(Utc::now);
+
+        Ok(RequestRecord {
+            id: row.get("id")?,
+            session_id: row.get("session_id")?,
+            timestamp,
+            method: row.get("method")?,
+            path: row.get("path")?,
+            model: row.get("model")?,
+            stream: row.get::<_, i64>("stream")? != 0,
+            status_code: row.get("status_code")?,
+            status_kind: Self::status_kind_from_db(&row.get::<_, String>("status_kind")?),
+            ttft_ms: row.get("ttft_ms")?,
+            duration_ms: row.get("duration_ms")?,
+            input_tokens: row.get("input_tokens")?,
+            output_tokens: row.get("output_tokens")?,
+            cache_read_tokens: row.get("cache_read_tokens")?,
+            cache_creation_tokens: row.get("cache_creation_tokens")?,
+            thinking_tokens: row.get("thinking_tokens")?,
+            request_size_bytes: row.get::<_, i64>("request_size_bytes")? as u64,
+            response_size_bytes: row.get::<_, i64>("response_size_bytes")? as u64,
+            stall_count: row.get::<_, i64>("stall_count")? as u32,
+            stall_details_json: row.get("stall_details_json")?,
+            error_summary: row.get("error_summary")?,
+            stop_reason: row.get("stop_reason")?,
+            content_block_types_json: row.get("content_block_types_json")?,
+            anomalies_json: row.get("anomalies_json")?,
+            analyzed: row.get::<_, i64>("analyzed")? != 0,
+        })
+    }
+
+    pub fn get_request(&self, request_id: &str) -> Result<Option<RequestRecord>, rusqlite::Error> {
+        let db = self.db.lock();
+        let mut stmt = db.prepare(
+            r#"SELECT id, session_id, timestamp_ms, method, path, model, stream, status_code, status_kind,
+                      ttft_ms, duration_ms, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
+                      thinking_tokens, request_size_bytes, response_size_bytes, stall_count, stall_details_json,
+                      error_summary, stop_reason, content_block_types_json, anomalies_json, analyzed
+               FROM requests WHERE id = ?1"#,
+        )?;
+
+        let mut rows = stmt.query(params![request_id])?;
+        if let Some(row) = rows.next()? {
+            Ok(Some(Self::row_to_request(row)?))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn list_unanalyzed_requests(&self, limit: usize) -> Result<Vec<RequestRecord>, rusqlite::Error> {
+        let db = self.db.lock();
+        let mut stmt = db.prepare(
+            r#"SELECT id, session_id, timestamp_ms, method, path, model, stream, status_code, status_kind,
+                      ttft_ms, duration_ms, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
+                      thinking_tokens, request_size_bytes, response_size_bytes, stall_count, stall_details_json,
+                      error_summary, stop_reason, content_block_types_json, anomalies_json, analyzed
+               FROM requests
+               WHERE analyzed = 0
+               ORDER BY timestamp_ms ASC
+               LIMIT ?1"#,
+        )?;
+
+        let rows = stmt.query_map(params![limit as i64], Self::row_to_request)?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    pub fn list_recent_requests_for_model(
+        &self,
+        model: &str,
+        limit: usize,
+    ) -> Result<Vec<RequestRecord>, rusqlite::Error> {
+        let db = self.db.lock();
+        let mut stmt = db.prepare(
+            r#"SELECT id, session_id, timestamp_ms, method, path, model, stream, status_code, status_kind,
+                      ttft_ms, duration_ms, input_tokens, output_tokens, cache_read_tokens, cache_creation_tokens,
+                      thinking_tokens, request_size_bytes, response_size_bytes, stall_count, stall_details_json,
+                      error_summary, stop_reason, content_block_types_json, anomalies_json, analyzed
+               FROM requests
+               WHERE model = ?1
+               ORDER BY timestamp_ms DESC
+               LIMIT ?2"#,
+        )?;
+
+        let rows = stmt.query_map(params![model, limit as i64], Self::row_to_request)?;
+        let mut out = Vec::new();
+        for row in rows {
+            out.push(row?);
+        }
+        Ok(out)
+    }
+
+    pub fn insert_anomalies(
+        &self,
+        request_id: &str,
+        anomalies: &[DetectedAnomaly],
+    ) -> Result<(), rusqlite::Error> {
+        let now_ms = Utc::now().timestamp_millis();
+        let db = self.db.lock();
+
+        for anomaly in anomalies {
+            db.execute(
+                "INSERT INTO anomalies (id, request_id, kind, severity, summary, hypothesis, evidence_json, created_at_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    uuid::Uuid::new_v4().to_string(),
+                    request_id,
+                    serde_json::to_string(&anomaly.kind).unwrap_or_else(|_| "\"slow_ttft\"".to_string()).replace('"', ""),
+                    serde_json::to_string(&anomaly.severity).unwrap_or_else(|_| "\"warning\"".to_string()).replace('"', ""),
+                    anomaly.summary,
+                    anomaly.hypothesis,
+                    "{}",
+                    now_ms,
+                ],
+            )?;
+        }
+
+        Ok(())
+    }
+
+    pub fn mark_analyzed(&self, request_id: &str) -> Result<(), rusqlite::Error> {
+        let db = self.db.lock();
+        db.execute(
+            "UPDATE requests SET analyzed = 1 WHERE id = ?1",
+            params![request_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn increment_model_sample_count(&self, model: &str) -> Result<u64, rusqlite::Error> {
+        let now_ms = Utc::now().timestamp_millis();
+        let db = self.db.lock();
+
+        db.execute(
+            "INSERT INTO model_profiles (model_name, sample_count, last_updated_ms) VALUES (?1, 0, ?2)
+             ON CONFLICT(model_name) DO NOTHING",
+            params![model, now_ms],
+        )?;
+
+        db.execute(
+            "UPDATE model_profiles SET sample_count = sample_count + 1, last_updated_ms = ?2 WHERE model_name = ?1",
+            params![model, now_ms],
+        )?;
+
+        let sample_count: i64 = db.query_row(
+            "SELECT sample_count FROM model_profiles WHERE model_name = ?1",
+            params![model],
+            |row| row.get(0),
+        )?;
+
+        Ok(sample_count.max(0) as u64)
+    }
+
+    pub fn compute_model_observed_stats(&self, model: &str) -> Result<serde_json::Value, rusqlite::Error> {
+        let db = self.db.lock();
+
+        let (sample_count, avg_ttft_ms): (i64, Option<f64>) = db.query_row(
+            "SELECT COUNT(*), AVG(ttft_ms) FROM requests WHERE model = ?1",
+            params![model],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )?;
+
+        Ok(serde_json::json!({
+            "sample_count": sample_count,
+            "avg_ttft_ms": avg_ttft_ms,
+        }))
+    }
+
+    pub fn upsert_model_observed(
+        &self,
+        model: &str,
+        observed: &serde_json::Value,
+    ) -> Result<(), rusqlite::Error> {
+        let now_ms = Utc::now().timestamp_millis();
+        let observed_json = serde_json::to_string(observed).unwrap_or_else(|_| "{}".to_string());
+        let db = self.db.lock();
+
+        db.execute(
+            "INSERT INTO model_profiles (model_name, observed_json, last_updated_ms) VALUES (?1, ?2, ?3)
+             ON CONFLICT(model_name) DO UPDATE SET observed_json = excluded.observed_json, last_updated_ms = excluded.last_updated_ms",
+            params![model, observed_json, now_ms],
+        )?;
+
+        Ok(())
     }
 }
 

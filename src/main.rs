@@ -12,10 +12,13 @@ mod stats;
 mod store;
 mod types;
 
+use analyzer::AnalyzerRules;
 use clap::Parser;
 use stats::StatsStore;
 use std::path::PathBuf;
 use std::sync::Arc;
+use store::Store;
+use tokio::time::{interval, Duration};
 
 #[derive(Parser, Debug, Clone)]
 #[command(name = "claude-proxy", about = "Ultra-fast API logging proxy for Claude Code")]
@@ -53,6 +56,10 @@ async fn main() {
     tracing_subscriber::fmt::init();
 
     let args = Args::parse();
+    let analyzer_rules = AnalyzerRules {
+        slow_ttft_threshold_ms: args.slow_ttft_threshold as f64,
+        stall_threshold_s: args.stall_threshold,
+    };
 
     if let Some(model_config_path) = &args.model_config {
         eprintln!(
@@ -84,6 +91,20 @@ async fn main() {
 
     store.load_from_db();
 
+    if let Ok(analyzer_store) = Store::new(&data_dir.join("proxy-v2.db")) {
+        let analyzer_store = Arc::new(analyzer_store);
+        let worker_rules = analyzer_rules.clone();
+        tokio::spawn(async move {
+            let mut ticker = interval(Duration::from_secs(5));
+            loop {
+                ticker.tick().await;
+                if let Err(err) = run_analyzer_tick_with_rules(analyzer_store.clone(), &worker_rules).await {
+                    eprintln!("Analyzer tick failed: {err}");
+                }
+            }
+        });
+    }
+
     print_banner(
         &target,
         args.port,
@@ -111,6 +132,36 @@ async fn main() {
         eprintln!("Proxy startup failed: {err}");
         std::process::exit(1);
     }
+}
+
+pub async fn run_analyzer_tick(store: Arc<Store>) -> Result<(), rusqlite::Error> {
+    let rules = AnalyzerRules {
+        slow_ttft_threshold_ms: 3000.0,
+        stall_threshold_s: 0.5,
+    };
+    run_analyzer_tick_with_rules(store, &rules).await
+}
+
+async fn run_analyzer_tick_with_rules(
+    store: Arc<Store>,
+    rules: &AnalyzerRules,
+) -> Result<(), rusqlite::Error> {
+    let pending = store.list_unanalyzed_requests(200)?;
+
+    for req in pending {
+        let recent = store.list_recent_requests_for_model(&req.model, 50)?;
+        let anomalies = analyzer::detect_anomalies(&req, rules, &recent);
+        store.insert_anomalies(&req.id, &anomalies)?;
+        store.mark_analyzed(&req.id)?;
+
+        let sample_count = store.increment_model_sample_count(&req.model)?;
+        if model_profile::should_auto_tune(sample_count) {
+            let observed = store.compute_model_observed_stats(&req.model)?;
+            store.upsert_model_observed(&req.model, &observed)?;
+        }
+    }
+
+    Ok(())
 }
 
 fn print_banner(
@@ -152,6 +203,9 @@ mod main {
 
     mod tests {
         use super::*;
+        use crate::store::Store;
+        use crate::types::{RequestRecord, RequestStatusKind};
+        use chrono::Utc;
 
         #[test]
         fn parse_args_exposes_v2_threshold_flags() {
@@ -169,6 +223,51 @@ mod main {
 
             assert_eq!(args.slow_ttft_threshold, 3000);
             assert!((args.stall_threshold - 0.5).abs() < f64::EPSILON);
+        }
+
+        fn seed_unanalyzed_request() -> (Arc<Store>, String) {
+            let path = std::env::temp_dir().join(format!("proxy-v2-{}.db", uuid::Uuid::new_v4()));
+            let store = Arc::new(Store::new(&path).unwrap());
+            let request_id = "req-analyzer-1".to_string();
+
+            let request = RequestRecord {
+                id: request_id.clone(),
+                session_id: Some("session-1".to_string()),
+                timestamp: Utc::now(),
+                method: "POST".to_string(),
+                path: "/v1/messages".to_string(),
+                model: "claude-opus-4-1".to_string(),
+                stream: true,
+                status_code: Some(200),
+                status_kind: RequestStatusKind::Success,
+                ttft_ms: Some(4200.0),
+                duration_ms: Some(6500.0),
+                input_tokens: Some(120),
+                output_tokens: Some(300),
+                cache_read_tokens: None,
+                cache_creation_tokens: None,
+                thinking_tokens: None,
+                request_size_bytes: 1024,
+                response_size_bytes: 2048,
+                stall_count: 0,
+                stall_details_json: "[]".to_string(),
+                error_summary: None,
+                stop_reason: Some("end_turn".to_string()),
+                content_block_types_json: "[]".to_string(),
+                anomalies_json: "[]".to_string(),
+                analyzed: false,
+            };
+
+            store.add_request(&request).unwrap();
+            (store, request_id)
+        }
+
+        #[tokio::test]
+        async fn analyzer_worker_marks_requests_as_analyzed() {
+            let (store, request_id) = seed_unanalyzed_request();
+            run_analyzer_tick(store.clone()).await.unwrap();
+            let req = store.get_request(&request_id).unwrap().unwrap();
+            assert!(req.analyzed);
         }
     }
 }
