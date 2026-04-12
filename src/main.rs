@@ -1,6 +1,8 @@
 mod analyzer;
 mod correlation;
 mod dashboard;
+#[allow(dead_code)] // Wired by analyzer worker in upcoming integration
+mod explain;
 mod model_profile;
 mod proxy;
 #[allow(dead_code)] // Many methods are test infrastructure or scaffolded for future wiring
