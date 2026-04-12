@@ -91,18 +91,25 @@ async fn main() {
 
     store.load_from_db();
 
-    if let Ok(analyzer_store) = Store::new(&data_dir.join("proxy-v2.db")) {
-        let analyzer_store = Arc::new(analyzer_store);
-        let worker_rules = analyzer_rules.clone();
-        tokio::spawn(async move {
-            let mut ticker = interval(Duration::from_secs(5));
-            loop {
-                ticker.tick().await;
-                if let Err(err) = run_analyzer_tick_with_rules(analyzer_store.clone(), &worker_rules).await {
-                    eprintln!("Analyzer tick failed: {err}");
+    match Store::new(&data_dir.join("proxy-v2.db")) {
+        Ok(analyzer_store) => {
+            let analyzer_store = Arc::new(analyzer_store);
+            let worker_rules = analyzer_rules.clone();
+            tokio::spawn(async move {
+                let mut ticker = interval(Duration::from_secs(5));
+                loop {
+                    ticker.tick().await;
+                    if let Err(err) =
+                        run_analyzer_tick_with_rules(analyzer_store.clone(), &worker_rules).await
+                    {
+                        eprintln!("Analyzer tick failed: {err}");
+                    }
                 }
-            }
-        });
+            });
+        }
+        Err(err) => {
+            eprintln!("Analyzer worker store initialization failed: {err}");
+        }
     }
 
     print_banner(
@@ -151,10 +158,7 @@ async fn run_analyzer_tick_with_rules(
     for req in pending {
         let recent = store.list_recent_requests_for_model(&req.model, 50)?;
         let anomalies = analyzer::detect_anomalies(&req, rules, &recent);
-        store.insert_anomalies(&req.id, &anomalies)?;
-        store.mark_analyzed(&req.id)?;
-
-        let sample_count = store.increment_model_sample_count(&req.model)?;
+        let sample_count = store.persist_analyzed_request(&req.id, &req.model, &anomalies)?;
         if model_profile::should_auto_tune(sample_count) {
             let observed = store.compute_model_observed_stats(&req.model)?;
             store.upsert_model_observed(&req.model, &observed)?;
@@ -225,49 +229,95 @@ mod main {
             assert!((args.stall_threshold - 0.5).abs() < f64::EPSILON);
         }
 
-        fn seed_unanalyzed_request() -> (Arc<Store>, String) {
+        fn seed_unanalyzed_request() -> (Arc<Store>, Vec<String>) {
+            seed_unanalyzed_requests(1, "claude-opus-4-1")
+        }
+
+        fn seed_unanalyzed_requests(count: usize, model: &str) -> (Arc<Store>, Vec<String>) {
             let path = std::env::temp_dir().join(format!("proxy-v2-{}.db", uuid::Uuid::new_v4()));
             let store = Arc::new(Store::new(&path).unwrap());
-            let request_id = "req-analyzer-1".to_string();
+            let mut request_ids = Vec::with_capacity(count);
 
-            let request = RequestRecord {
-                id: request_id.clone(),
-                session_id: Some("session-1".to_string()),
-                timestamp: Utc::now(),
-                method: "POST".to_string(),
-                path: "/v1/messages".to_string(),
-                model: "claude-opus-4-1".to_string(),
-                stream: true,
-                status_code: Some(200),
-                status_kind: RequestStatusKind::Success,
-                ttft_ms: Some(4200.0),
-                duration_ms: Some(6500.0),
-                input_tokens: Some(120),
-                output_tokens: Some(300),
-                cache_read_tokens: None,
-                cache_creation_tokens: None,
-                thinking_tokens: None,
-                request_size_bytes: 1024,
-                response_size_bytes: 2048,
-                stall_count: 0,
-                stall_details_json: "[]".to_string(),
-                error_summary: None,
-                stop_reason: Some("end_turn".to_string()),
-                content_block_types_json: "[]".to_string(),
-                anomalies_json: "[]".to_string(),
-                analyzed: false,
-            };
+            for idx in 0..count {
+                let request_id = format!("req-analyzer-{idx}");
+                let request = RequestRecord {
+                    id: request_id.clone(),
+                    session_id: Some("session-1".to_string()),
+                    timestamp: Utc::now(),
+                    method: "POST".to_string(),
+                    path: "/v1/messages".to_string(),
+                    model: model.to_string(),
+                    stream: true,
+                    status_code: Some(200),
+                    status_kind: RequestStatusKind::Success,
+                    ttft_ms: Some(4200.0),
+                    duration_ms: Some(6500.0),
+                    input_tokens: Some(120),
+                    output_tokens: Some(300),
+                    cache_read_tokens: None,
+                    cache_creation_tokens: None,
+                    thinking_tokens: None,
+                    request_size_bytes: 1024,
+                    response_size_bytes: 2048,
+                    stall_count: 0,
+                    stall_details_json: "[]".to_string(),
+                    error_summary: None,
+                    stop_reason: Some("end_turn".to_string()),
+                    content_block_types_json: "[]".to_string(),
+                    anomalies_json: "[]".to_string(),
+                    analyzed: false,
+                };
 
-            store.add_request(&request).unwrap();
-            (store, request_id)
+                store.add_request(&request).unwrap();
+                request_ids.push(request_id);
+            }
+
+            (store, request_ids)
         }
 
         #[tokio::test]
         async fn analyzer_worker_marks_requests_as_analyzed() {
-            let (store, request_id) = seed_unanalyzed_request();
+            let (store, request_ids) = seed_unanalyzed_request();
+            let request_id = request_ids.into_iter().next().unwrap();
             run_analyzer_tick(store.clone()).await.unwrap();
             let req = store.get_request(&request_id).unwrap().unwrap();
             assert!(req.analyzed);
+        }
+
+        #[tokio::test]
+        async fn analyzer_worker_persistence_is_idempotent_for_same_request() {
+            let (store, request_ids) = seed_unanalyzed_request();
+            let request_id = request_ids.into_iter().next().unwrap();
+            run_analyzer_tick(store.clone()).await.unwrap();
+
+            store.mark_analyzed(&request_id).unwrap();
+            let req = store.get_request(&request_id).unwrap().unwrap();
+            let rules = AnalyzerRules {
+                slow_ttft_threshold_ms: 3000.0,
+                stall_threshold_s: 0.5,
+            };
+            let recent = store.list_recent_requests_for_model(&req.model, 50).unwrap();
+            let anomalies = analyzer::detect_anomalies(&req, &rules, &recent);
+            store
+                .persist_analyzed_request(&request_id, &req.model, &anomalies)
+                .unwrap();
+
+            let anomaly_count = store.count_anomalies_for_request(&request_id).unwrap();
+            assert_eq!(anomaly_count, anomalies.len() as u64);
+        }
+
+        #[tokio::test]
+        async fn analyzer_worker_hits_auto_tune_boundary_at_fifty_samples() {
+            let model = "claude-opus-4-1";
+            let (store, _request_ids) = seed_unanalyzed_requests(50, model);
+            run_analyzer_tick(store.clone()).await.unwrap();
+
+            let sample_count = store.get_model_profile_sample_count(model).unwrap().unwrap();
+            assert_eq!(sample_count, 50);
+
+            let observed = store.get_model_profile_observed(model).unwrap().unwrap();
+            assert_eq!(observed["sample_count"], serde_json::json!(50));
+            assert!(observed["avg_ttft_ms"].as_f64().unwrap() > 0.0);
         }
     }
 }

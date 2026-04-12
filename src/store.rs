@@ -367,6 +367,18 @@ impl Store {
         Ok(out)
     }
 
+    fn serialize_anomaly_kind(anomaly: &DetectedAnomaly) -> String {
+        serde_json::to_string(&anomaly.kind)
+            .unwrap_or_else(|_| "\"slow_ttft\"".to_string())
+            .replace('"', "")
+    }
+
+    fn serialize_anomaly_severity(anomaly: &DetectedAnomaly) -> String {
+        serde_json::to_string(&anomaly.severity)
+            .unwrap_or_else(|_| "\"warning\"".to_string())
+            .replace('"', "")
+    }
+
     pub fn insert_anomalies(
         &self,
         request_id: &str,
@@ -381,8 +393,8 @@ impl Store {
                 params![
                     uuid::Uuid::new_v4().to_string(),
                     request_id,
-                    serde_json::to_string(&anomaly.kind).unwrap_or_else(|_| "\"slow_ttft\"".to_string()).replace('"', ""),
-                    serde_json::to_string(&anomaly.severity).unwrap_or_else(|_| "\"warning\"".to_string()).replace('"', ""),
+                    Self::serialize_anomaly_kind(anomaly),
+                    Self::serialize_anomaly_severity(anomaly),
                     anomaly.summary,
                     anomaly.hypothesis,
                     "{}",
@@ -392,6 +404,64 @@ impl Store {
         }
 
         Ok(())
+    }
+
+    pub fn persist_analyzed_request(
+        &self,
+        request_id: &str,
+        model: &str,
+        anomalies: &[DetectedAnomaly],
+    ) -> Result<u64, rusqlite::Error> {
+        let now_ms = Utc::now().timestamp_millis();
+        let mut db = self.db.lock();
+        let tx = db.transaction()?;
+
+        tx.execute(
+            "DELETE FROM anomalies WHERE request_id = ?1",
+            params![request_id],
+        )?;
+
+        for anomaly in anomalies {
+            tx.execute(
+                "INSERT INTO anomalies (id, request_id, kind, severity, summary, hypothesis, evidence_json, created_at_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    uuid::Uuid::new_v4().to_string(),
+                    request_id,
+                    Self::serialize_anomaly_kind(anomaly),
+                    Self::serialize_anomaly_severity(anomaly),
+                    anomaly.summary,
+                    anomaly.hypothesis,
+                    "{}",
+                    now_ms,
+                ],
+            )?;
+        }
+
+        tx.execute(
+            "UPDATE requests SET analyzed = 1 WHERE id = ?1",
+            params![request_id],
+        )?;
+
+        tx.execute(
+            "INSERT INTO model_profiles (model_name, sample_count, last_updated_ms) VALUES (?1, 0, ?2)
+             ON CONFLICT(model_name) DO NOTHING",
+            params![model, now_ms],
+        )?;
+
+        tx.execute(
+            "UPDATE model_profiles SET sample_count = sample_count + 1, last_updated_ms = ?2 WHERE model_name = ?1",
+            params![model, now_ms],
+        )?;
+
+        let sample_count: i64 = tx.query_row(
+            "SELECT sample_count FROM model_profiles WHERE model_name = ?1",
+            params![model],
+            |row| row.get(0),
+        )?;
+
+        tx.commit()?;
+
+        Ok(sample_count.max(0) as u64)
     }
 
     pub fn mark_analyzed(&self, request_id: &str) -> Result<(), rusqlite::Error> {
@@ -440,6 +510,41 @@ impl Store {
             "sample_count": sample_count,
             "avg_ttft_ms": avg_ttft_ms,
         }))
+    }
+
+    pub fn count_anomalies_for_request(&self, request_id: &str) -> Result<u64, rusqlite::Error> {
+        let db = self.db.lock();
+        let count: i64 = db.query_row(
+            "SELECT COUNT(*) FROM anomalies WHERE request_id = ?1",
+            params![request_id],
+            |row| row.get(0),
+        )?;
+        Ok(count.max(0) as u64)
+    }
+
+    pub fn get_model_profile_sample_count(&self, model: &str) -> Result<Option<u64>, rusqlite::Error> {
+        let db = self.db.lock();
+        let mut stmt = db.prepare("SELECT sample_count FROM model_profiles WHERE model_name = ?1")?;
+        let mut rows = stmt.query(params![model])?;
+        if let Some(row) = rows.next()? {
+            let sample_count: i64 = row.get(0)?;
+            Ok(Some(sample_count.max(0) as u64))
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn get_model_profile_observed(&self, model: &str) -> Result<Option<serde_json::Value>, rusqlite::Error> {
+        let db = self.db.lock();
+        let mut stmt = db.prepare("SELECT observed_json FROM model_profiles WHERE model_name = ?1")?;
+        let mut rows = stmt.query(params![model])?;
+        if let Some(row) = rows.next()? {
+            let observed_json: String = row.get(0)?;
+            let observed = serde_json::from_str(&observed_json).unwrap_or_else(|_| serde_json::json!({}));
+            Ok(Some(observed))
+        } else {
+            Ok(None)
+        }
     }
 
     pub fn upsert_model_observed(
