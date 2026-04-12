@@ -7,7 +7,6 @@ mod proxy;
 #[allow(dead_code)] // Many methods are test infrastructure or scaffolded for future wiring
 mod stats;
 mod store;
-#[allow(dead_code)] // Conformance scaffolds and forward-compat types wired incrementally
 mod types;
 
 use analyzer::AnalyzerRules;
@@ -143,8 +142,12 @@ async fn main() {
             let mut ticker = interval(Duration::from_secs(5));
             loop {
                 ticker.tick().await;
-                if let Err(err) =
-                    run_analyzer_tick_with_rules(analyzer_store.clone(), Some(stats_for_worker.clone()), &worker_rules).await
+                if let Err(err) = run_analyzer_tick_with_rules(
+                    analyzer_store.clone(),
+                    Some(stats_for_worker.clone()),
+                    &worker_rules,
+                )
+                .await
                 {
                     eprintln!("Analyzer tick failed: {err}");
                 }

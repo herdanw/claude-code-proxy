@@ -81,26 +81,6 @@ pub struct RequestRecord {
     pub analyzed: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModelProfileAssignment {
-    pub model_name: String,
-    pub behavior_class: Option<String>,
-    pub sample_count: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CategoryConformanceScore {
-    pub category: String,
-    pub score_percent: f64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ModelConformanceSummary {
-    pub model_name: String,
-    pub overall_score_percent: f64,
-    pub category_scores: Vec<CategoryConformanceScore>,
-}
-
 // ─── Forward-compatibility: unknown field tracking ───
 
 /// Known SSE event types in the Claude Messages API streaming protocol.
@@ -116,6 +96,7 @@ pub const KNOWN_SSE_EVENTS: &[&str] = &[
 ];
 
 /// Known stop reasons returned by the Claude Messages API.
+#[allow(dead_code)] // Used in tests; will be wired when stop-reason tracking lands
 pub const KNOWN_STOP_REASONS: &[&str] = &["end_turn", "max_tokens", "stop_sequence", "tool_use"];
 
 /// Tracks unknown / unrecognised protocol fields observed during streaming,
@@ -143,6 +124,7 @@ impl UnknownFieldStats {
 
     /// Record a stop reason if it is not in the known set.
     /// Deduplicates: the same value is stored at most once.
+    #[allow(dead_code)] // Used in tests; will be wired when stop-reason tracking lands
     pub fn record_unknown_stop_reason(&mut self, reason: &str) {
         if !KNOWN_STOP_REASONS.contains(&reason)
             && !self.unknown_stop_reasons.iter().any(|r| r == reason)
