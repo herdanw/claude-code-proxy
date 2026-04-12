@@ -2088,4 +2088,12 @@ mod tests {
         assert!(html.contains("id=\"tab-sessions\""), "shell.html must contain sessions tab panel");
         assert!(html.contains("id=\"session-list\""), "shell.html must contain session list");
     }
+
+    #[tokio::test]
+    async fn assembled_dashboard_contains_app_initialization() {
+        let html = super::assemble_dashboard_html();
+        assert!(html.contains("DOMContentLoaded"), "app.js must wire DOMContentLoaded");
+        assert!(html.contains("connectWS()"), "app.js must call connectWS()");
+        assert!(html.contains("initCharts()"), "app.js must call initCharts()");
+    }
 }

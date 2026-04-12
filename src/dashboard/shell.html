@@ -243,6 +243,42 @@
       </div>
     </div>
   </div>
+
+  <!-- ═══ SETTINGS EDITOR PANEL (non-tab) ═══ -->
+  <div id="settings-editor-container" style="display:none">
+    <div class="card" id="settings-editor-panel">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;gap:8px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <span style="font-size:12px;color:var(--text-2);font-family:var(--mono);text-transform:uppercase;letter-spacing:0.05em">Claude settings.json</span>
+          <span style="font-size:11px;color:var(--text-2);font-family:var(--mono)">~/.claude/settings.json</span>
+          <span id="settings-dirty-indicator" style="display:none;font-size:11px;color:var(--yellow);font-family:var(--mono)">● Unsaved changes</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <button class="filter-btn" id="settings-format-btn" type="button">Format</button>
+          <button class="filter-btn" id="settings-reset-btn" type="button">Reset</button>
+          <button class="filter-btn" id="settings-apply-btn" type="button" style="background:var(--blue);color:var(--bg-0);border-color:var(--blue);font-weight:600">Apply</button>
+        </div>
+      </div>
+
+      <div id="settings-error-banner" style="display:none;margin-bottom:10px;padding:10px;background:rgba(243,139,168,0.1);border:1px solid var(--red);border-radius:8px;cursor:pointer">
+        <span id="settings-error-text" style="font-size:11px;color:var(--red);font-family:var(--mono)"></span>
+      </div>
+
+      <div style="display:flex;border:1px solid var(--border);border-radius:8px;overflow:hidden;min-height:420px;max-height:75vh;background:var(--bg-1)">
+        <div id="settings-line-numbers" style="width:52px;padding:12px 8px;text-align:right;background:var(--bg-2);border-right:1px solid var(--border);font-family:var(--mono);font-size:13px;line-height:1.6;color:var(--text-2);white-space:pre;user-select:none;overflow:hidden">1</div>
+        <div style="position:relative;flex:1;overflow:hidden">
+          <pre id="settings-highlight" aria-hidden="true" style="position:absolute;inset:0;margin:0;padding:12px;font-family:var(--mono);font-size:13px;line-height:1.6;white-space:pre-wrap;word-break:break-word;pointer-events:none;overflow:hidden"></pre>
+          <label class="sr-only" for="settings-claude-json">Claude settings JSON</label>
+          <textarea id="settings-claude-json" spellcheck="false" style="position:relative;z-index:1;width:100%;height:100%;min-height:420px;max-height:75vh;padding:12px;border:none;outline:none;resize:none;background:transparent;color:transparent;caret-color:var(--text-0);font-family:var(--mono);font-size:13px;line-height:1.6;white-space:pre-wrap;overflow-y:auto;overflow-x:hidden">{{}}</textarea>
+        </div>
+      </div>
+
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-top:10px;gap:8px;flex-wrap:wrap">
+        <span id="settings-apply-status" style="font-size:11px;color:var(--text-2);font-family:var(--mono)"></span>
+        <span id="settings-editor-meta" style="font-size:11px;color:var(--text-2);font-family:var(--mono)"></span>
+      </div>
+    </div>
+  </div>
 </div>
 <script>
 {utils_js}
