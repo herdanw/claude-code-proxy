@@ -6,6 +6,11 @@
 /.planning/
 /.worktrees/
 
+# Tool/agent state
+/.claude/
+/.serena/
+/.superpowers/
+
 # Local SQLite/runtime data
 *.db
 *.db-shm
