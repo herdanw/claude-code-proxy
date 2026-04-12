@@ -11,7 +11,7 @@ mod types;
 
 use analyzer::AnalyzerRules;
 use clap::Parser;
-use stats::StatsStore;
+use stats::{SettingsHistoryItem, StatsStore};
 use std::path::PathBuf;
 use std::sync::Arc;
 use store::Store;
@@ -54,6 +54,42 @@ struct Args {
     /// address on startup, and restore the original value on shutdown (Ctrl+C).
     #[arg(long, default_value_t = false, action = clap::ArgAction::SetTrue)]
     auto_configure: bool,
+}
+
+fn check_settings_changed(
+    stats_store: &StatsStore,
+    claude_root: &std::path::Path,
+    last_hash: &mut Option<String>,
+) {
+    let settings_path = claude_root.join("settings.json");
+    if !settings_path.exists() {
+        return;
+    }
+    let contents = match std::fs::read_to_string(&settings_path) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    contents.hash(&mut hasher);
+    let current_hash = format!("{:016x}", hasher.finish());
+
+    if last_hash.as_ref() == Some(&current_hash) {
+        return;
+    }
+    *last_hash = Some(current_hash.clone());
+
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let snapshot = SettingsHistoryItem {
+        id: uuid::Uuid::new_v4().to_string(),
+        saved_at_ms: now_ms,
+        content_hash: current_hash,
+        settings_json: contents,
+        source: "file_watch".to_string(),
+    };
+    stats_store.insert_settings_history_snapshot(&snapshot);
 }
 
 #[tokio::main]
@@ -126,6 +162,7 @@ async fn main() {
     let _ = std::fs::create_dir_all(&data_dir);
 
     let claude_root = dirs::home_dir().unwrap_or_default().join(".claude");
+    let claude_root_for_worker = claude_root.clone();
 
     let store = Arc::new(StatsStore::new(
         50_000,
@@ -152,8 +189,10 @@ async fn main() {
         let analyzer_store = v2_store.clone();
         let stats_for_worker = store.clone();
         let worker_rules = analyzer_rules.clone();
+        let worker_claude_root = claude_root_for_worker.clone();
         tokio::spawn(async move {
             let mut ticker = interval(Duration::from_secs(5));
+            let mut last_settings_hash: Option<String> = None;
             loop {
                 ticker.tick().await;
                 if let Err(err) = run_analyzer_tick_with_rules(
@@ -165,6 +204,7 @@ async fn main() {
                 {
                     eprintln!("Analyzer tick failed: {err}");
                 }
+                check_settings_changed(&stats_for_worker, &worker_claude_root, &mut last_settings_hash);
             }
         });
     }

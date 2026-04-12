@@ -78,6 +78,8 @@ fn build_dashboard_app(stats: Arc<StatsStore>, store: Arc<Store>, model_config: 
         .route("/api/reset", post(api_reset))
         .route("/api/entry-body", get(api_entry_body))
         .route("/api/claude-sessions", get(api_claude_sessions))
+        .route("/api/settings-history", get(api_settings_history))
+        .route("/api/settings-history/:id", get(api_settings_history_item))
         .route("/ws", get(ws_handler))
         .with_state(state)
 }
@@ -741,6 +743,38 @@ async fn api_reset_memory(State(state): State<DashboardState>) -> impl IntoRespo
 
 async fn api_reset(State(state): State<DashboardState>) -> impl IntoResponse {
     axum::Json(state.stats.clear_all())
+}
+
+async fn api_settings_history(State(state): State<DashboardState>) -> impl IntoResponse {
+    let items = state.stats.list_settings_history_desc(50);
+    let entries: Vec<serde_json::Value> = items
+        .iter()
+        .map(|item| {
+            serde_json::json!({
+                "id": item.id,
+                "saved_at_ms": item.saved_at_ms,
+                "content_hash": item.content_hash,
+                "source": item.source,
+            })
+        })
+        .collect();
+    Json(serde_json::json!(entries))
+}
+
+async fn api_settings_history_item(
+    Path(id): Path<String>,
+    State(state): State<DashboardState>,
+) -> impl IntoResponse {
+    match state.stats.get_settings_history_item(&id) {
+        Some(item) => Json(serde_json::json!({
+            "id": item.id,
+            "saved_at_ms": item.saved_at_ms,
+            "content_hash": item.content_hash,
+            "settings_json": item.settings_json,
+            "source": item.source,
+        })),
+        None => Json(serde_json::json!({"error": "not found"})),
+    }
 }
 
 async fn ws_handler(
