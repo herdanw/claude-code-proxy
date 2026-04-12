@@ -476,30 +476,6 @@ impl Store {
         Ok(())
     }
 
-    pub fn increment_model_sample_count(&self, model: &str) -> Result<u64, rusqlite::Error> {
-        let now_ms = Utc::now().timestamp_millis();
-        let db = self.db.lock();
-
-        db.execute(
-            "INSERT INTO model_profiles (model_name, sample_count, last_updated_ms) VALUES (?1, 0, ?2)
-             ON CONFLICT(model_name) DO NOTHING",
-            params![model, now_ms],
-        )?;
-
-        db.execute(
-            "UPDATE model_profiles SET sample_count = sample_count + 1, last_updated_ms = ?2 WHERE model_name = ?1",
-            params![model, now_ms],
-        )?;
-
-        let sample_count: i64 = db.query_row(
-            "SELECT sample_count FROM model_profiles WHERE model_name = ?1",
-            params![model],
-            |row| row.get(0),
-        )?;
-
-        Ok(sample_count.max(0) as u64)
-    }
-
     pub fn compute_model_observed_stats(
         &self,
         model: &str,
@@ -577,6 +553,92 @@ impl Store {
             params![model, observed_json, now_ms],
         )?;
 
+        Ok(())
+    }
+    pub fn get_tool_usage_for_request(&self, request_id: &str) -> Result<Vec<serde_json::Value>, rusqlite::Error> {
+        let db = self.db.lock();
+        let mut stmt = db.prepare(
+            "SELECT id, tool_name, tool_input_json, success, is_error FROM tool_usage WHERE request_id = ?1"
+        )?;
+        let rows = stmt.query_map(params![request_id], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "tool_name": row.get::<_, String>(1)?,
+                "tool_input": row.get::<_, Option<String>>(2)?.and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok()),
+                "success": row.get::<_, Option<bool>>(3)?,
+                "is_error": row.get::<_, Option<bool>>(4)?,
+            }))
+        })?;
+        rows.collect()
+    }
+
+    pub fn insert_tool_usage(&self, request_id: &str, tool_name: &str, tool_input_json: &str) -> Result<(), rusqlite::Error> {
+        let db = self.db.lock();
+        let id = uuid::Uuid::new_v4().to_string();
+        db.execute(
+            "INSERT INTO tool_usage (id, request_id, tool_name, tool_input_json) VALUES (?1, ?2, ?3, ?4)",
+            params![id, request_id, tool_name, tool_input_json],
+        )?;
+        Ok(())
+    }
+
+    pub fn get_anomaly_by_id(&self, anomaly_id: &str) -> Result<Option<serde_json::Value>, rusqlite::Error> {
+        let db = self.db.lock();
+        let mut stmt = db.prepare(
+            "SELECT id, request_id, kind, severity, summary, hypothesis, evidence_json, created_at_ms FROM anomalies WHERE id = ?1"
+        )?;
+        let result = stmt.query_row(params![anomaly_id], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "request_id": row.get::<_, String>(1)?,
+                "kind": row.get::<_, String>(2)?,
+                "severity": row.get::<_, String>(3)?,
+                "summary": row.get::<_, String>(4)?,
+                "hypothesis": row.get::<_, Option<String>>(5)?,
+                "evidence": row.get::<_, Option<String>>(6)?.and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok()),
+                "detected_at_ms": row.get::<_, i64>(7)?,
+            }))
+        });
+        match result {
+            Ok(val) => Ok(Some(val)),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+
+    pub fn list_all_model_stats(&self) -> Result<Vec<serde_json::Value>, rusqlite::Error> {
+        let db = self.db.lock();
+        let mut stmt = db.prepare(
+            "SELECT model, COUNT(*) as count, \
+             AVG(CASE WHEN ttft_ms IS NOT NULL THEN ttft_ms END) as avg_ttft, \
+             SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) as error_count, \
+             MAX(timestamp_ms) as last_seen \
+             FROM requests GROUP BY model ORDER BY count DESC"
+        )?;
+        let rows = stmt.query_map([], |row| {
+            Ok(serde_json::json!({
+                "model": row.get::<_, String>(0)?,
+                "request_count": row.get::<_, i64>(1)?,
+                "avg_ttft_ms": row.get::<_, Option<f64>>(2)?,
+                "error_count": row.get::<_, i64>(3)?,
+                "last_seen_ms": row.get::<_, Option<i64>>(4)?,
+            }))
+        })?;
+        rows.collect()
+    }
+
+    pub fn replace_explanations_for_request(&self, request_id: &str, explanations: &[crate::explain::Explanation]) -> Result<(), rusqlite::Error> {
+        let db = self.db.lock();
+        for explanation in explanations {
+            db.execute(
+                "UPDATE anomalies SET evidence_json = ?1 WHERE request_id = ?2 AND kind = ?3",
+                params![
+                    serde_json::to_string(&explanation.evidence_json).unwrap_or_else(|_| "{}".to_string()),
+                    request_id,
+                    explanation.anomaly_kind.to_lowercase(),
+                ],
+            )?;
+        }
         Ok(())
     }
 }
@@ -869,5 +931,49 @@ mod tests {
             .search_request_ids("   \t\n", 10, 0)
             .unwrap()
             .is_empty());
+    }
+
+    #[test]
+    fn tool_usage_insert_and_read() {
+        let store = create_store();
+        let db = store.db.lock();
+        db.execute(
+            "INSERT INTO requests(id, timestamp_ms, method, path, model) VALUES(?1, ?2, ?3, ?4, ?5)",
+            params!["req-tool", 1_i64, "POST", "/v1/messages", "claude"],
+        ).unwrap();
+        drop(db);
+
+        store.insert_tool_usage("req-tool", "read_file", r#"{"path":"foo.rs"}"#).unwrap();
+        let tools = store.get_tool_usage_for_request("req-tool").unwrap();
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0]["tool_name"], "read_file");
+    }
+
+    #[test]
+    fn anomaly_by_id_returns_none_for_missing() {
+        let store = create_store();
+        let result = store.get_anomaly_by_id("nonexistent").unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn list_all_model_stats_groups_by_model() {
+        let store = create_store();
+        let db = store.db.lock();
+        db.execute(
+            "INSERT INTO requests(id, timestamp_ms, method, path, model, status_code) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+            params!["req-1", 1_i64, "POST", "/v1/messages", "claude-sonnet", 200],
+        ).unwrap();
+        db.execute(
+            "INSERT INTO requests(id, timestamp_ms, method, path, model, status_code) VALUES(?1, ?2, ?3, ?4, ?5, ?6)",
+            params!["req-2", 2_i64, "POST", "/v1/messages", "claude-sonnet", 500],
+        ).unwrap();
+        drop(db);
+
+        let stats = store.list_all_model_stats().unwrap();
+        assert_eq!(stats.len(), 1);
+        assert_eq!(stats[0]["model"], "claude-sonnet");
+        assert_eq!(stats[0]["request_count"], 2);
+        assert_eq!(stats[0]["error_count"], 1);
     }
 }
