@@ -690,6 +690,7 @@ async fn ws_connection(mut socket: WebSocket, store: Arc<StatsStore>) {
     }
 }
 
+#[allow(dead_code)] // Used in tests; wired into serve_dashboard() in Task 11
 fn assemble_dashboard_html() -> String {
     format!(
         include_str!("dashboard/shell.html"),
@@ -2013,6 +2014,15 @@ mod tests {
             .unwrap_or(false));
 
         let _ = std::fs::remove_dir_all(&log_dir);
+    }
+
+    #[tokio::test]
+    async fn assembled_dashboard_contains_utility_functions() {
+        let html = super::assemble_dashboard_html();
+        assert!(html.contains("function fmt("), "utils.js must contain fmt()");
+        assert!(html.contains("function esc("), "utils.js must contain esc()");
+        assert!(html.contains("function formatDuration("), "utils.js must contain formatDuration()");
+        assert!(html.contains("function tryFormatJson("), "utils.js must contain tryFormatJson()");
     }
 
     #[tokio::test]
