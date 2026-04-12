@@ -27,6 +27,7 @@ function setActiveTab(tabName, { persist = true } = {}) {
     updateSortArrows();
   }
   if (tab === 'overview') requestAnimationFrame(() => resizeCharts());
+  if (tab === 'conformance' && typeof initConformanceTab === 'function') initConformanceTab();
 }
 
 function snapshotRequestViewState() {
