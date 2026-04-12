@@ -16,14 +16,16 @@ use std::sync::Arc;
 struct DashboardState {
     stats: Arc<StatsStore>,
     store: Arc<Store>,
+    model_config: Option<Arc<crate::model_profile::ModelConfig>>,
 }
 
 pub async fn run_dashboard(
     stats: Arc<StatsStore>,
     store: Arc<Store>,
+    model_config: Option<Arc<crate::model_profile::ModelConfig>>,
     port: u16,
 ) -> Result<(), String> {
-    let app = build_dashboard_app(stats, store);
+    let app = build_dashboard_app(stats, store, model_config);
 
     let addr = format!("127.0.0.1:{port}");
     let listener = tokio::net::TcpListener::bind(&addr)
@@ -43,8 +45,8 @@ pub async fn run_dashboard(
         .map_err(|err| format!("Dashboard server stopped unexpectedly: {err}"))
 }
 
-fn build_dashboard_app(stats: Arc<StatsStore>, store: Arc<Store>) -> Router {
-    let state = DashboardState { stats, store };
+fn build_dashboard_app(stats: Arc<StatsStore>, store: Arc<Store>, model_config: Option<Arc<crate::model_profile::ModelConfig>>) -> Router {
+    let state = DashboardState { stats, store, model_config };
     Router::new()
         .route("/", get(serve_dashboard))
         .route("/api/health", get(api_health))
@@ -805,7 +807,7 @@ mod tests {
             2_097_152,
             log_dir.clone(),
         ));
-        let app = build_dashboard_app(store, test_v2_store());
+        let app = build_dashboard_app(store, test_v2_store(), None);
 
         let response = app
             .oneshot(
@@ -1083,7 +1085,7 @@ mod tests {
                 .unwrap();
         store.add_entry(outside_window);
 
-        let app = build_dashboard_app(store, test_v2_store());
+        let app = build_dashboard_app(store, test_v2_store(), None);
         let response = app
             .oneshot(
                 Request::builder()
@@ -1157,7 +1159,7 @@ mod tests {
         ));
         store.add_entry(sample_entry());
 
-        let app = build_dashboard_app(store, test_v2_store());
+        let app = build_dashboard_app(store, test_v2_store(), None);
         let response = app
             .oneshot(
                 Request::builder()
@@ -1204,7 +1206,7 @@ mod tests {
         entry.id = "req-invalid-anomaly-fallback".into();
         store.add_entry(entry);
 
-        let app = build_dashboard_app(store, test_v2_store());
+        let app = build_dashboard_app(store, test_v2_store(), None);
         let response = app
             .oneshot(
                 Request::builder()
@@ -1247,7 +1249,7 @@ mod tests {
             2_097_152,
             log_dir.clone(),
         ));
-        let app = build_dashboard_app(store, test_v2_store());
+        let app = build_dashboard_app(store, test_v2_store(), None);
 
         let response = app
             .oneshot(
@@ -1294,7 +1296,7 @@ mod tests {
         entry.session_id = None;
         store.add_entry(entry);
 
-        let app = build_dashboard_app(store, test_v2_store());
+        let app = build_dashboard_app(store, test_v2_store(), None);
         let response = app
             .oneshot(
                 Request::builder()
@@ -1344,7 +1346,7 @@ mod tests {
             2_097_152,
             log_dir.clone(),
         ));
-        let app = build_dashboard_app(store, test_v2_store());
+        let app = build_dashboard_app(store, test_v2_store(), None);
 
         let response = app
             .oneshot(
@@ -1395,7 +1397,7 @@ mod tests {
         );
         assert_eq!(store.persisted_entry_count(), 1);
 
-        let app = build_dashboard_app(store.clone(), test_v2_store());
+        let app = build_dashboard_app(store.clone(), test_v2_store(), None);
         let response = app
             .oneshot(
                 Request::builder()
@@ -1446,7 +1448,7 @@ mod tests {
         );
         assert_eq!(store.persisted_entry_count(), 1);
 
-        let app = build_dashboard_app(store.clone(), test_v2_store());
+        let app = build_dashboard_app(store.clone(), test_v2_store(), None);
         let response = app
             .oneshot(
                 Request::builder()
@@ -1486,7 +1488,7 @@ mod tests {
         ));
         store.add_entry(sample_entry());
 
-        let app = build_dashboard_app(store, test_v2_store());
+        let app = build_dashboard_app(store, test_v2_store(), None);
         let response = app
             .oneshot(
                 Request::builder()
@@ -1540,7 +1542,7 @@ mod tests {
         second.error = Some("forbidden".into());
         store.add_entry(second);
 
-        let app = build_dashboard_app(store, test_v2_store());
+        let app = build_dashboard_app(store, test_v2_store(), None);
         let response = app
             .oneshot(
                 Request::builder()
@@ -1600,7 +1602,7 @@ mod tests {
             created_at_ms: chrono::Utc::now().timestamp_millis(),
         });
 
-        let app = build_dashboard_app(store, test_v2_store());
+        let app = build_dashboard_app(store, test_v2_store(), None);
         let response = app
             .oneshot(
                 Request::builder()
@@ -1699,7 +1701,7 @@ mod tests {
             payload_json: serde_json::json!({}),
         });
 
-        let app = build_dashboard_app(store, test_v2_store());
+        let app = build_dashboard_app(store, test_v2_store(), None);
         let response = app
             .oneshot(
                 Request::builder()
@@ -1757,7 +1759,7 @@ mod tests {
             2_097_152,
             log_dir.clone(),
         ));
-        let app = build_dashboard_app(store, test_v2_store());
+        let app = build_dashboard_app(store, test_v2_store(), None);
 
         let response = app
             .oneshot(
@@ -1834,7 +1836,7 @@ mod tests {
             created_at_ms: chrono::Utc::now().timestamp_millis(),
         });
 
-        let app = build_dashboard_app(store, test_v2_store());
+        let app = build_dashboard_app(store, test_v2_store(), None);
         let response = app
             .oneshot(
                 Request::builder()
@@ -1933,7 +1935,7 @@ mod tests {
             created_at_ms: chrono::Utc::now().timestamp_millis(),
         });
 
-        let app = build_dashboard_app(store, test_v2_store());
+        let app = build_dashboard_app(store, test_v2_store(), None);
         let response = app
             .oneshot(
                 Request::builder()
@@ -1988,7 +1990,7 @@ mod tests {
             claude_dir,
         ));
 
-        let app = build_dashboard_app(store, test_v2_store());
+        let app = build_dashboard_app(store, test_v2_store(), None);
 
         let get_response = app
             .clone()
@@ -2054,7 +2056,7 @@ mod tests {
         req.session_id = Some("s-endpoint".into());
         store.add_entry(req);
 
-        let app = build_dashboard_app(store, test_v2_store());
+        let app = build_dashboard_app(store, test_v2_store(), None);
         let response = app
             .oneshot(
                 Request::builder()

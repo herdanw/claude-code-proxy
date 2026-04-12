@@ -92,15 +92,29 @@ async fn main() {
         stall_threshold_s: args.stall_threshold,
     };
 
-    if let Some(model_config_path) = &args.model_config {
-        let msg = format!(
-            "--model-config is not wired in this phase yet: {}",
-            model_config_path.display()
-        );
-        eprintln!("{msg}");
-        write_log(&msg);
-        std::process::exit(2);
-    }
+    let model_config = if let Some(model_config_path) = &args.model_config {
+        match model_profile::load_model_config(model_config_path) {
+            Ok(config) => {
+                let msg = format!(
+                    "Loaded model config from {} ({} mappings, {} profiles)",
+                    model_config_path.display(),
+                    config.model_mappings.len(),
+                    config.profiles.len()
+                );
+                eprintln!("  \x1b[92m✓\x1b[0m {msg}");
+                write_log(&msg);
+                Some(Arc::new(config))
+            }
+            Err(err) => {
+                let msg = format!("Failed to load model config: {err}");
+                eprintln!("{msg}");
+                write_log(&msg);
+                std::process::exit(2);
+            }
+        }
+    } else {
+        None
+    };
 
     let target = args.target.trim_end_matches('/').to_string();
     let data_dir = args.data_dir.unwrap_or_else(|| {
@@ -167,9 +181,10 @@ async fn main() {
 
     let store_dash = store.clone();
     let v2_dash = v2_store.clone();
+    let model_config_dash = model_config.clone();
     let dash_port = args.dashboard_port;
     tokio::spawn(async move {
-        if let Err(err) = dashboard::run_dashboard(store_dash, v2_dash, dash_port).await {
+        if let Err(err) = dashboard::run_dashboard(store_dash, v2_dash, model_config_dash, dash_port).await {
             eprintln!("Dashboard startup failed: {err}");
         }
     });
