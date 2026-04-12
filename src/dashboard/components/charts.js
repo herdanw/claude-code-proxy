@@ -2,6 +2,17 @@
 let ttftChart = null;
 let errorsChart = null;
 
+const chartDefaults = {
+  responsive: true, maintainAspectRatio: false,
+  plugins: { legend: { display: false } },
+  scales: {
+    x: { grid: { color: 'rgba(42,43,61,0.5)' }, ticks: { color: '#6c7086', font: { size: 10, family: 'JetBrains Mono' } } },
+    y: { grid: { color: 'rgba(42,43,61,0.5)' }, ticks: { color: '#6c7086', font: { size: 10, family: 'JetBrains Mono' } }, beginAtZero: true }
+  },
+  animation: { duration: 300 },
+  elements: { point: { radius: 0 }, line: { tension: 0.3, borderWidth: 2 } }
+};
+
 function initCharts() {
   const ttftCtx = document.getElementById('chart-ttft').getContext('2d');
   ttftChart = new Chart(ttftCtx, {
