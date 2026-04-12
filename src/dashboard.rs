@@ -2038,4 +2038,12 @@ mod tests {
         assert!(html.contains("--bg-0"), "CSS variables must be present in assembled output");
         assert!(html.contains("--cyan"), "CSS variables must be present in assembled output");
     }
+
+    #[tokio::test]
+    async fn assembled_dashboard_contains_chart_functions() {
+        let html = super::assemble_dashboard_html();
+        assert!(html.contains("function initCharts("), "charts.js must contain initCharts()");
+        assert!(html.contains("function updateCharts("), "charts.js must contain updateCharts()");
+        assert!(html.contains("function resetCharts("), "charts.js must contain resetCharts()");
+    }
 }
