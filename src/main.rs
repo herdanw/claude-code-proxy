@@ -55,6 +55,27 @@ struct Args {
 async fn main() {
     tracing_subscriber::fmt::init();
 
+    // Write a startup log next to the exe so users can diagnose errors
+    // even when running outside a terminal (e.g. double-click on Windows).
+    let log_path = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join("claude-proxy.log")));
+    let write_log = |msg: &str| {
+        if let Some(ref path) = log_path {
+            use std::io::Write;
+            if let Ok(mut f) = std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .truncate(true)
+                .open(path)
+            {
+                let _ = writeln!(f, "[{}] {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"), msg);
+            }
+        }
+    };
+
+    write_log("Starting claude-proxy...");
+
     let args = Args::parse();
     let analyzer_rules = AnalyzerRules {
         slow_ttft_threshold_ms: args.slow_ttft_threshold as f64,
@@ -62,10 +83,9 @@ async fn main() {
     };
 
     if let Some(model_config_path) = &args.model_config {
-        eprintln!(
-            "--model-config is not wired in this phase yet: {}",
-            model_config_path.display()
-        );
+        let msg = format!("--model-config is not wired in this phase yet: {}", model_config_path.display());
+        eprintln!("{msg}");
+        write_log(&msg);
         std::process::exit(2);
     }
 
@@ -135,8 +155,12 @@ async fn main() {
         let _ = open::that(&dashboard_url);
     }
 
+    write_log("Proxy and dashboard started successfully.");
+
     if let Err(err) = proxy::run_proxy(store, &target, args.port).await {
-        eprintln!("Proxy startup failed: {err}");
+        let msg = format!("Proxy startup failed: {err}");
+        eprintln!("{msg}");
+        write_log(&msg);
         std::process::exit(1);
     }
 }
