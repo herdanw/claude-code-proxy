@@ -456,7 +456,16 @@ fn process_sse_text_chunk_with_stats(
             }
         }
 
+        let prev_stop_reason = stop_reason.is_none();
         process_sse_line(&line, usage, stop_reason, tool_uses);
+        // Track unknown stop reasons after process_sse_line may have set one
+        if prev_stop_reason && stop_reason.is_some() {
+            if let Some(ref mut s) = stats {
+                if let Some(ref reason) = stop_reason {
+                    s.record_unknown_stop_reason(reason);
+                }
+            }
+        }
         line_buffer.drain(..=newline_idx);
     }
 }

@@ -96,7 +96,6 @@ pub const KNOWN_SSE_EVENTS: &[&str] = &[
 ];
 
 /// Known stop reasons returned by the Claude Messages API.
-#[allow(dead_code)] // Used in tests; will be wired when stop-reason tracking lands
 pub const KNOWN_STOP_REASONS: &[&str] = &["end_turn", "max_tokens", "stop_sequence", "tool_use"];
 
 /// Tracks unknown / unrecognised protocol fields observed during streaming,
@@ -124,7 +123,6 @@ impl UnknownFieldStats {
 
     /// Record a stop reason if it is not in the known set.
     /// Deduplicates: the same value is stored at most once.
-    #[allow(dead_code)] // Used in tests; will be wired when stop-reason tracking lands
     pub fn record_unknown_stop_reason(&mut self, reason: &str) {
         if !KNOWN_STOP_REASONS.contains(&reason)
             && !self.unknown_stop_reasons.iter().any(|r| r == reason)
