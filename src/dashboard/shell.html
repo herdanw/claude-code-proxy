@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude Code Proxy — Dashboard</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3"></script>
+<style>
+{css}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1><span>⚡</span> Claude Code Proxy</h1>
+  <div class="header-right">
+    <span><span class="status-dot disconnected" id="ws-dot"></span><span id="ws-status">Connecting...</span></span>
+    <span id="uptime" style="color:var(--text-2)">0:00:00</span>
+  </div>
+</div>
+<div class="container">
+  <p style="color:var(--text-1)">Dashboard shell loaded — tabs coming next.</p>
+</div>
+<script>
+{utils_js}
+{charts_js}
+{websocket_js}
+{overview_js}
+{requests_js}
+{conformance_js}
+{anomalies_js}
+{sessions_js}
+{app_js}
+</script>
+</body>
+</html>

@@ -690,6 +690,22 @@ async fn ws_connection(mut socket: WebSocket, store: Arc<StatsStore>) {
     }
 }
 
+fn assemble_dashboard_html() -> String {
+    format!(
+        include_str!("dashboard/shell.html"),
+        css = include_str!("dashboard/styles.css"),
+        utils_js = include_str!("dashboard/utils.js"),
+        charts_js = include_str!("dashboard/components/charts.js"),
+        websocket_js = include_str!("dashboard/components/websocket.js"),
+        overview_js = include_str!("dashboard/tabs/overview.js"),
+        requests_js = include_str!("dashboard/tabs/requests.js"),
+        conformance_js = include_str!("dashboard/tabs/conformance.js"),
+        anomalies_js = include_str!("dashboard/tabs/anomalies.js"),
+        sessions_js = include_str!("dashboard/tabs/sessions.js"),
+        app_js = include_str!("dashboard/app.js"),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1997,5 +2013,12 @@ mod tests {
             .unwrap_or(false));
 
         let _ = std::fs::remove_dir_all(&log_dir);
+    }
+
+    #[tokio::test]
+    async fn assembled_dashboard_contains_css_variables() {
+        let html = super::assemble_dashboard_html();
+        assert!(html.contains("--bg-0"), "CSS variables must be present in assembled output");
+        assert!(html.contains("--cyan"), "CSS variables must be present in assembled output");
     }
 }

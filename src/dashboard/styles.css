@@ -1,0 +1,375 @@
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=DM+Sans:wght@300;400;500;600;700&display=swap');
+
+  :root {{
+    --bg-0: #0a0b0e; --bg-1: #12131a; --bg-2: #1a1b26; --bg-3: #222338;
+    --text-0: #e8e9f0; --text-1: #a9adc1; --text-2: #6c7086;
+    --green: #a6e3a1; --yellow: #f9e2af; --red: #f38ba8; --cyan: #89dceb;
+    --blue: #89b4fa; --mauve: #cba6f7; --peach: #fab387;
+    --border: #2a2b3d; --hover: #2a2b3d;
+    --radius: 10px; --mono: 'JetBrains Mono', monospace; --sans: 'DM Sans', sans-serif;
+  }}
+
+  * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+
+  body {{
+    font-family: var(--sans); background: var(--bg-0); color: var(--text-0);
+    line-height: 1.5; -webkit-font-smoothing: antialiased;
+  }}
+
+  /* ─── Layout ─── */
+  .header {{
+    padding: 16px 24px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--bg-1); position: sticky; top: 0; z-index: 100;
+    gap: 12px;
+    flex-wrap: wrap;
+  }}
+  .header h1 {{ font-size: 16px; font-weight: 600; letter-spacing: -0.02em; }}
+  .header h1 span {{ color: var(--cyan); }}
+  .header-right {{
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    font-size: 12px;
+    font-family: var(--mono);
+  }}
+  .toolbar-actions {{
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+  }}
+  .status-dot {{ width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 6px; }}
+  .status-dot.connected {{ background: var(--green); box-shadow: 0 0 6px var(--green); }}
+  .status-dot.disconnected {{ background: var(--red); }}
+
+  .toolbar-btn {{
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--bg-2);
+    color: var(--text-0);
+    padding: 8px 12px;
+    font-size: 12px;
+    font-family: var(--sans);
+    cursor: pointer;
+    transition: all 0.15s;
+    white-space: nowrap;
+  }}
+  .toolbar-btn:hover {{ border-color: #3a3b5d; background: var(--hover); }}
+  .toolbar-btn:disabled {{ opacity: 0.7; cursor: wait; }}
+  .toolbar-btn.secondary {{ color: var(--text-1); }}
+  .toolbar-btn.secondary:hover {{ border-color: var(--cyan); color: var(--cyan); }}
+  .toolbar-btn.danger {{ color: #ffd7df; border-color: rgba(243,139,168,0.35); background: rgba(243,139,168,0.08); }}
+  .toolbar-btn.danger:hover {{ border-color: var(--red); background: rgba(243,139,168,0.15); }}
+
+  .container {{ max-width: 1600px; margin: 0 auto; padding: 20px 24px; }}
+
+  .tabs {{
+    display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid var(--border); padding-bottom: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }}
+  .tabs::-webkit-scrollbar {{ display: none; }}
+  .tab {{
+    padding: 8px 16px; cursor: pointer; font-size: 13px; font-weight: 500; color: var(--text-2);
+    border-bottom: 2px solid transparent; transition: all 0.15s;
+    flex: 0 0 auto;
+  }}
+  .tab:hover {{ color: var(--text-1); }}
+  .tab.active {{ color: var(--cyan); border-bottom-color: var(--cyan); }}
+
+  .tab-content {{ display: none; }}
+  .tab-content.active {{ display: block; }}
+
+  /* ─── Cards ─── */
+  .grid {{ display: grid; gap: 16px; margin-bottom: 20px; }}
+  .grid-4 {{ grid-template-columns: repeat(4, 1fr); }}
+  .grid-3 {{ grid-template-columns: repeat(3, 1fr); }}
+  .grid-2 {{ grid-template-columns: repeat(2, 1fr); }}
+
+  .card {{
+    background: var(--bg-1); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px; transition: border-color 0.15s;
+  }}
+  .card:hover {{ border-color: #3a3b5d; }}
+  .card-label {{ font-size: 11px; font-weight: 500; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; }}
+  .card-value {{ font-size: 28px; font-weight: 700; font-family: var(--mono); letter-spacing: -0.03em; }}
+  .card-sub {{ font-size: 11px; color: var(--text-2); font-family: var(--mono); margin-top: 2px; }}
+
+  .health-card {{ position: relative; overflow: hidden; }}
+  .health-bar {{ position: absolute; bottom: 0; left: 0; height: 3px; transition: width 0.5s, background 0.5s; }}
+
+  /* ─── Charts ─── */
+  .chart-card {{
+    padding: 16px;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }}
+  .chart-card h3 {{ font-size: 12px; font-weight: 500; color: var(--text-2); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 12px; }}
+  .chart-wrap {{
+    position: relative;
+    height: clamp(220px, 32vw, 320px);
+    min-height: 220px;
+    max-height: 320px;
+    width: 100%;
+    min-width: 0;
+  }}
+  .chart-wrap canvas {{
+    display: block;
+    width: 100% !important;
+    height: 100% !important;
+  }}
+
+  /* ─── Table ─── */
+  .table-controls {{
+    display: flex; gap: 8px; margin-bottom: 12px; align-items: center; flex-wrap: wrap;
+  }}
+  .search-input {{
+    background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px;
+    padding: 7px 12px; color: var(--text-0); font-size: 12px; font-family: var(--mono);
+    outline: none; width: 240px; max-width: 100%; flex: 1 1 240px; transition: border-color 0.15s;
+  }}
+  .search-input:focus {{ border-color: var(--cyan); }}
+  .search-input::placeholder {{ color: var(--text-2); }}
+
+  .filter-btn {{
+    background: var(--bg-2); border: 1px solid var(--border); border-radius: 6px;
+    padding: 7px 12px; color: var(--text-1); font-size: 12px; cursor: pointer;
+    font-family: var(--sans); transition: all 0.15s;
+  }}
+  .filter-btn:hover {{ border-color: var(--text-2); }}
+  .filter-btn.active {{ border-color: var(--cyan); color: var(--cyan); background: rgba(137,220,235,0.08); }}
+
+  .settings-code-line {{ min-height: 1.6em; padding-left: 2px; }}
+  .settings-error-line {{
+    background: rgba(243,139,168,0.1);
+    border-left: 3px solid var(--red);
+    margin-left: -14px;
+    padding-left: 11px;
+  }}
+  .settings-line-num {{ min-height: 1.6em; }}
+  .settings-line-num-error {{ color: var(--red); font-weight: 700; }}
+  .json-key {{ color: #89b4fa; font-weight: 500; }}
+  .json-string {{ color: #a6e3a1; }}
+  .json-number {{ color: #fab387; font-weight: 500; }}
+  .json-boolean, .json-null {{ color: #cba6f7; font-weight: 600; }}
+  .json-punc {{ color: #585b70; }}
+
+  table {{ width: 100%; border-collapse: collapse; font-size: 12px; }}
+  thead th {{
+    text-align: left; padding: 8px 10px; color: var(--text-2); font-weight: 500;
+    border-bottom: 1px solid var(--border); font-size: 11px; text-transform: uppercase;
+    letter-spacing: 0.04em; position: sticky; top: 0; background: var(--bg-1);
+  }}
+  tbody tr {{ border-bottom: 1px solid rgba(42,43,61,0.5); transition: background 0.1s; }}
+  tbody tr:hover {{ background: var(--hover); }}
+  tbody td {{ padding: 7px 10px; font-family: var(--mono); font-size: 12px; white-space: nowrap; }}
+  tbody tr.new-entry {{ animation: flash 0.6s ease-out; }}
+
+  @keyframes flash {{ from {{ background: rgba(137,220,235,0.12); }} to {{ background: transparent; }} }}
+
+  .status-badge {{
+    padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; display: inline-block;
+  }}
+  .status-2xx {{ background: rgba(166,227,161,0.15); color: var(--green); }}
+  .status-4xx {{ background: rgba(249,226,175,0.15); color: var(--yellow); }}
+  .status-5xx {{ background: rgba(243,139,168,0.15); color: var(--red); }}
+  .status-timeout {{ background: rgba(243,139,168,0.15); color: var(--red); }}
+  .status-stall {{ background: rgba(250,179,135,0.15); color: var(--peach); }}
+
+  .ttft-cell {{ text-align: right; }}
+  .ttft-good {{ color: var(--green); }}
+  .ttft-slow {{ color: var(--yellow); }}
+  .ttft-bad {{ color: var(--red); }}
+
+  .anomaly-badge {{
+    display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10px; margin-left: 4px;
+    font-weight: 600;
+  }}
+  .sev-warning {{ background: rgba(249,226,175,0.15); color: var(--yellow); }}
+  .sev-error {{ background: rgba(243,139,168,0.15); color: var(--red); }}
+  .sev-critical {{ background: rgba(243,139,168,0.25); color: var(--red); font-weight: 700; }}
+
+  .error-text {{ color: var(--red); font-size: 11px; max-width: 400px; overflow: hidden; text-overflow: ellipsis; }}
+  .model-text {{ color: var(--cyan); }}
+  .tokens-text {{ color: var(--text-2); }}
+  .stall-text {{ color: var(--peach); }}
+
+  /* ─── Anomalies panel ─── */
+  .anomaly-list {{ max-height: 300px; overflow-y: auto; }}
+  .anomaly-item {{
+    padding: 8px 12px; border-left: 3px solid; margin-bottom: 4px;
+    font-size: 12px; background: var(--bg-2); border-radius: 0 4px 4px 0;
+  }}
+  .anomaly-item.warning {{ border-left-color: var(--yellow); }}
+  .anomaly-item.error {{ border-left-color: var(--red); }}
+  .anomaly-item.critical {{ border-left-color: var(--red); background: rgba(243,139,168,0.08); }}
+
+  /* ─── Sessions ─── */
+  .session-card {{
+    background: var(--bg-2); border: 1px solid var(--border); border-radius: 8px;
+    padding: 12px 16px; margin-bottom: 8px; cursor: pointer; transition: all 0.15s;
+  }}
+  .session-card:hover {{ border-color: var(--cyan); }}
+  .session-meta {{ display: flex; gap: 16px; font-size: 12px; font-family: var(--mono); color: var(--text-2); margin-top: 6px; flex-wrap: wrap; }}
+  .session-graph-panel {{ margin-top: 12px; }}
+
+  /* ─── Correlations ─── */
+  .request-row-clickable {{ cursor: pointer; }}
+  .correlation-panel {{ margin-top: 12px; }}
+  .correlation-header {{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    flex-wrap: wrap;
+  }}
+  .correlation-request-id {{
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-1);
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 3px 8px;
+  }}
+  .correlation-list {{
+    display: grid;
+    gap: 8px;
+    margin-top: 12px;
+  }}
+  .correlation-item {{
+    background: var(--bg-2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }}
+  .correlation-meta {{
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    margin-bottom: 6px;
+    font-size: 11px;
+    color: var(--text-2);
+    font-family: var(--mono);
+  }}
+
+  /* ─── Modal ─── */
+  .modal-backdrop {{
+    position: fixed; inset: 0; background: rgba(0,0,0,0.75); z-index: 200;
+    display: flex; align-items: center; justify-content: center;
+    animation: fadeIn 0.15s ease-out;
+  }}
+  @keyframes fadeIn {{ from {{ opacity: 0; }} to {{ opacity: 1; }} }}
+  .modal-content {{
+    background: var(--bg-1); border: 1px solid var(--border); border-radius: 12px;
+    width: 90vw; max-width: 900px; max-height: 85vh; overflow-y: auto;
+    padding: 24px; position: relative;
+    animation: slideUp 0.15s ease-out;
+  }}
+  @keyframes slideUp {{ from {{ transform: translateY(20px); opacity: 0; }} to {{ transform: translateY(0); opacity: 1; }} }}
+  .modal-close {{
+    position: absolute; top: 12px; right: 16px; background: none; border: none;
+    color: var(--text-2); font-size: 20px; cursor: pointer; padding: 4px 8px;
+    border-radius: 4px; transition: all 0.15s;
+  }}
+  .modal-close:hover {{ color: var(--text-0); background: var(--bg-2); }}
+  .modal-header {{ margin-bottom: 16px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }}
+  .modal-title {{ font-size: 14px; font-weight: 600; margin-bottom: 4px; }}
+  .modal-subtitle {{ font-size: 12px; color: var(--text-2); font-family: var(--mono); }}
+  .modal-section {{ margin-bottom: 16px; }}
+  .modal-section-title {{
+    font-size: 11px; font-weight: 500; color: var(--text-2); text-transform: uppercase;
+    letter-spacing: 0.05em; margin-bottom: 8px;
+  }}
+  .modal-grid {{ display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }}
+  .modal-stat {{ background: var(--bg-2); border-radius: 6px; padding: 8px 12px; }}
+  .modal-stat-label {{ font-size: 10px; color: var(--text-2); text-transform: uppercase; }}
+  .modal-stat-value {{ font-size: 16px; font-weight: 600; font-family: var(--mono); }}
+  .modal-collapsible summary {{
+    cursor: pointer; font-size: 12px; color: var(--cyan); font-family: var(--mono);
+    padding: 6px 0; user-select: none;
+  }}
+  .modal-collapsible summary:hover {{ color: var(--text-0); }}
+  .modal-body-content {{
+    background: var(--bg-2); border-radius: 6px; padding: 12px;
+    font-size: 11px; font-family: var(--mono); white-space: pre-wrap;
+    word-break: break-all; max-height: 400px; overflow-y: auto;
+    color: var(--text-1); margin-top: 4px;
+  }}
+
+  /* ─── Sorting ─── */
+  .sortable {{ cursor: pointer; user-select: none; }}
+  .sortable:hover {{ color: var(--cyan); }}
+  .sort-arrow {{ font-size: 10px; margin-left: 2px; }}
+  .sort-arrow.asc::after {{ content: ' ▲'; }}
+  .sort-arrow.desc::after {{ content: ' ▼'; }}
+
+  /* ─── Sessions Split ─── */
+  .sessions-split {{
+    display: grid; grid-template-columns: 350px 1fr; gap: 16px; min-height: 60vh;
+  }}
+  .sessions-left {{
+    border-right: 1px solid var(--border); padding-right: 16px;
+    max-height: 80vh; overflow-y: auto;
+  }}
+  .sessions-right {{ overflow-y: auto; max-height: 80vh; }}
+  .session-card.active {{ border-color: var(--cyan); background: rgba(137,220,235,0.05); }}
+  .session-badge {{
+    display: inline-block; padding: 1px 6px; border-radius: 3px;
+    font-size: 10px; font-weight: 600;
+  }}
+  .session-badge.proxy {{ background: rgba(166,227,161,0.15); color: var(--green); }}
+  .session-badge.local {{ background: rgba(108,112,134,0.15); color: var(--text-2); }}
+
+  /* ─── Scrollbar ─── */
+  ::-webkit-scrollbar {{ width: 6px; }}
+  ::-webkit-scrollbar-track {{ background: var(--bg-0); }}
+  ::-webkit-scrollbar-thumb {{ background: var(--border); border-radius: 3px; }}
+  ::-webkit-scrollbar-thumb:hover {{ background: var(--text-2); }}
+
+  /* ─── Responsive ─── */
+  @media (max-width: 1200px) {{ .grid-4 {{ grid-template-columns: repeat(2, 1fr); }} }}
+  @media (max-width: 980px) {{
+    .grid-2 {{ grid-template-columns: 1fr; }}
+    .container {{ padding: 18px 20px; }}
+    .sessions-split {{ grid-template-columns: 1fr; }}
+    .sessions-left {{ border-right: none; border-bottom: 1px solid var(--border); padding-right: 0; padding-bottom: 16px; max-height: 40vh; }}
+  }}
+  @media (max-width: 768px) {{
+    .grid-4, .grid-3, .grid-2 {{ grid-template-columns: 1fr; }}
+    .header {{ padding: 14px 18px; align-items: flex-start; }}
+    .header-right {{ width: 100%; justify-content: space-between; }}
+    .table-controls {{ flex-direction: column; align-items: stretch; }}
+    .search-input {{ width: 100%; flex-basis: auto; }}
+    .chart-wrap {{ height: 240px; min-height: 240px; }}
+  }}
+  @media (max-width: 560px) {{
+    .container {{ padding: 16px; }}
+    .header-right {{ flex-direction: column; align-items: stretch; }}
+    .toolbar-actions {{ width: 100%; flex-direction: column; }}
+    .toolbar-btn {{ width: 100%; }}
+    .card-value {{ font-size: 24px; }}
+  }}
+
+  .empty-state {{ text-align: center; padding: 60px 20px; color: var(--text-2); }}
+  .empty-state h3 {{ font-size: 16px; color: var(--text-1); margin-bottom: 8px; }}
+  .sr-only {{
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }}
