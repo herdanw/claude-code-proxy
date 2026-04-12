@@ -188,7 +188,11 @@ async fn proxy_handler(
 
         let entry_id_for_body = entry.id.clone();
         state.store.add_entry(entry);
-        state.store.write_body(&entry_id_for_body, &String::from_utf8_lossy(&body_bytes), &String::from_utf8_lossy(&resp_body));
+        state.store.write_body(
+            &entry_id_for_body,
+            &String::from_utf8_lossy(&body_bytes),
+            &String::from_utf8_lossy(&resp_body),
+        );
 
         let mut resp = axum::http::Response::builder().status(status_code);
         for (k, v) in &resp_headers {
@@ -248,9 +252,7 @@ async fn proxy_handler(
                         }
                     }
                     Err(e) => {
-                        let _ = tx
-                            .send(Err(std::io::Error::other(e)))
-                            .await;
+                        let _ = tx.send(Err(std::io::Error::other(e))).await;
                         break;
                     }
                 }
@@ -310,14 +312,22 @@ async fn proxy_handler(
         if let Some(usage) = resp_json.get("usage") {
             entry.input_tokens = usage.get("input_tokens").and_then(|v| v.as_u64());
             entry.output_tokens = usage.get("output_tokens").and_then(|v| v.as_u64());
-            entry.cache_read_tokens = usage.get("cache_read_input_tokens").and_then(|v| v.as_u64());
-            entry.cache_creation_tokens = usage.get("cache_creation_input_tokens").and_then(|v| v.as_u64());
+            entry.cache_read_tokens = usage
+                .get("cache_read_input_tokens")
+                .and_then(|v| v.as_u64());
+            entry.cache_creation_tokens = usage
+                .get("cache_creation_input_tokens")
+                .and_then(|v| v.as_u64());
         }
     }
 
     let entry_id_for_body = entry.id.clone();
     state.store.add_entry(entry);
-    state.store.write_body(&entry_id_for_body, &String::from_utf8_lossy(&body_bytes), &String::from_utf8_lossy(&resp_body));
+    state.store.write_body(
+        &entry_id_for_body,
+        &String::from_utf8_lossy(&body_bytes),
+        &String::from_utf8_lossy(&resp_body),
+    );
 
     let mut resp = axum::http::Response::builder().status(status_code);
     for (k, v) in &resp_headers {
@@ -339,7 +349,10 @@ fn parse_request_body(body: &[u8]) -> (String, bool, Option<String>) {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        stream = json.get("stream").and_then(|v| v.as_bool()).unwrap_or(false);
+        stream = json
+            .get("stream")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
 
         // Try to extract session info from metadata
         if let Some(meta) = json.get("metadata") {
@@ -444,7 +457,10 @@ fn process_sse_line(line: &str, usage: &mut UsageData, stop_reason: &mut Option<
             if let Some(v) = u.get("cache_read_input_tokens").and_then(|v| v.as_u64()) {
                 usage.cache_read_tokens = Some(v);
             }
-            if let Some(v) = u.get("cache_creation_input_tokens").and_then(|v| v.as_u64()) {
+            if let Some(v) = u
+                .get("cache_creation_input_tokens")
+                .and_then(|v| v.as_u64())
+            {
                 usage.cache_creation_tokens = Some(v);
             }
             if let Some(v) = u.get("thinking_tokens").and_then(|v| v.as_u64()) {
@@ -585,7 +601,10 @@ mod tests {
 
         let summary = summarize_error_body(&headers, &[0x1f, 0x8b, 0x08, 0x00]);
 
-        assert_eq!(summary, "[gzip-encoded application/json response body, 4 bytes]");
+        assert_eq!(
+            summary,
+            "[gzip-encoded application/json response body, 4 bytes]"
+        );
     }
 
     #[test]
@@ -669,4 +688,3 @@ mod tests {
         assert_eq!(entry.stop_reason.as_deref(), Some("end_turn"));
     }
 }
-
