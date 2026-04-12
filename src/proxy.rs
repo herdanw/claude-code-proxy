@@ -1,4 +1,5 @@
 use crate::stats::*;
+use crate::types::{RequestRecord, RequestStatusKind};
 use axum::{
     body::Body,
     extract::State,
@@ -91,7 +92,15 @@ async fn proxy_handler(
     let request_size = body_bytes.len() as u64;
 
     // Parse request body for metadata
-    let (model, stream, session_id) = parse_request_body(&body_bytes);
+    let (model, stream, mut session_id) = parse_request_body(&body_bytes);
+
+    // Primary: Claude Code sends X-Claude-Code-Session-Id header on every request
+    if session_id.is_none() {
+        session_id = headers
+            .get("x-claude-code-session-id")
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+    }
 
     // Build entry skeleton
     let entry_id = uuid::Uuid::new_v4().to_string();
@@ -149,6 +158,10 @@ async fn proxy_handler(
             } else {
                 entry.status = RequestStatus::ProxyError;
                 entry.error = Some(format!("{e}"));
+            }
+            if let Some(ref v2) = state.v2_store {
+                let record = entry_to_request_record(&entry);
+                let _ = v2.add_request(&record);
             }
             state.store.add_entry(entry);
             return axum::http::Response::builder()
@@ -285,6 +298,18 @@ async fn proxy_handler(
             }
 
             let final_entry_id = final_entry.id.clone();
+            // Persist to V2 store for analyzer/conformance/sessions
+            if let Some(ref v2) = v2_store_clone {
+                let record = entry_to_request_record(&final_entry);
+                let _ = v2.add_request(&record);
+                let _ = v2.write_bodies(
+                    &final_entry_id,
+                    &req_body_for_store,
+                    &String::from_utf8_lossy(&response_buffer),
+                    req_body_for_store.len() > 2 * 1024 * 1024
+                        || response_buffer.len() > 2 * 1024 * 1024,
+                );
+            }
             store.add_entry(final_entry);
             let resp_body_str = String::from_utf8_lossy(&response_buffer).to_string();
             store.write_body(&final_entry_id, &req_body_for_store, &resp_body_str);
@@ -313,6 +338,10 @@ async fn proxy_handler(
         Err(e) => {
             entry.duration_ms = start.elapsed().as_secs_f64() * 1000.0;
             entry.error = Some(format!("Failed to read response: {e}"));
+            if let Some(ref v2) = state.v2_store {
+                let record = entry_to_request_record(&entry);
+                let _ = v2.add_request(&record);
+            }
             state.store.add_entry(entry);
             return axum::http::Response::builder()
                 .status(502)
@@ -339,12 +368,21 @@ async fn proxy_handler(
     }
 
     let entry_id_for_body = entry.id.clone();
+    let req_body_str = String::from_utf8_lossy(&body_bytes);
+    let resp_body_str = String::from_utf8_lossy(&resp_body);
+    // Persist to V2 store for analyzer/conformance/sessions
+    if let Some(ref v2) = state.v2_store {
+        let record = entry_to_request_record(&entry);
+        let _ = v2.add_request(&record);
+        let _ = v2.write_bodies(
+            &entry_id_for_body,
+            &req_body_str,
+            &resp_body_str,
+            body_bytes.len() > 2 * 1024 * 1024 || resp_body.len() > 2 * 1024 * 1024,
+        );
+    }
     state.store.add_entry(entry);
-    state.store.write_body(
-        &entry_id_for_body,
-        &String::from_utf8_lossy(&body_bytes),
-        &String::from_utf8_lossy(&resp_body),
-    );
+    state.store.write_body(&entry_id_for_body, &req_body_str, &resp_body_str);
 
     let mut resp = axum::http::Response::builder().status(status_code);
     for (k, v) in &resp_headers {
@@ -354,6 +392,49 @@ async fn proxy_handler(
 }
 
 // ─── Helpers ───
+
+fn entry_to_request_record(entry: &RequestEntry) -> RequestRecord {
+    let (status_code, status_kind) = match &entry.status {
+        RequestStatus::Success(c) => (Some(*c), RequestStatusKind::Success),
+        RequestStatus::ClientError(c) => (Some(*c), RequestStatusKind::ClientError),
+        RequestStatus::ServerError(c) => (Some(*c), RequestStatusKind::ServerError),
+        RequestStatus::Timeout => (None, RequestStatusKind::Timeout),
+        RequestStatus::ConnectionError => (None, RequestStatusKind::ConnectionError),
+        RequestStatus::ProxyError => (None, RequestStatusKind::ProxyError),
+        RequestStatus::Pending => (None, RequestStatusKind::Pending),
+    };
+    let stall_details_json =
+        serde_json::to_string(&entry.stalls).unwrap_or_else(|_| "[]".to_string());
+    let anomalies_json =
+        serde_json::to_string(&entry.anomalies).unwrap_or_else(|_| "[]".to_string());
+    RequestRecord {
+        id: entry.id.clone(),
+        session_id: entry.session_id.clone(),
+        timestamp: entry.timestamp,
+        method: entry.method.clone(),
+        path: entry.path.clone(),
+        model: entry.model.clone(),
+        stream: entry.stream,
+        status_code,
+        status_kind,
+        ttft_ms: entry.ttft_ms,
+        duration_ms: Some(entry.duration_ms),
+        input_tokens: entry.input_tokens,
+        output_tokens: entry.output_tokens,
+        cache_read_tokens: entry.cache_read_tokens,
+        cache_creation_tokens: entry.cache_creation_tokens,
+        thinking_tokens: entry.thinking_tokens,
+        request_size_bytes: entry.request_size_bytes,
+        response_size_bytes: entry.response_size_bytes,
+        stall_count: entry.stalls.len() as u32,
+        stall_details_json,
+        error_summary: entry.error.clone(),
+        stop_reason: entry.stop_reason.clone(),
+        content_block_types_json: "[]".to_string(),
+        anomalies_json,
+        analyzed: false,
+    }
+}
 
 fn parse_request_body(body: &[u8]) -> (String, bool, Option<String>) {
     let mut model = String::new();

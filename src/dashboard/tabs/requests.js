@@ -144,7 +144,6 @@ function setSearchQuery(value, { persist = true, reload = true } = {}) {
 function selectRequest(entry) {
   selectedRequestId = entry.id;
   selectedSessionId = entry.session_id || null;
-  loadCorrelations(entry.id);
   loadExplanations(entry.id);
   if (selectedSessionId) {
     loadSessionTimeline(selectedSessionId);
@@ -369,10 +368,6 @@ function openRequestModal(entry) {
           </div>
         </div>
         <div class="modal-section">
-          <div class="modal-section-title">Correlation Links</div>
-          <div class="correlation-list" id="modal-correlations"><div style="color:var(--text-2);font-size:12px">Loading correlations…</div></div>
-        </div>
-        <div class="modal-section">
           <div class="modal-section-title">Top Explanations</div>
           <div class="correlation-list" id="modal-explanations"><div style="color:var(--text-2);font-size:12px">Loading explanations…</div></div>
         </div>
@@ -389,7 +384,6 @@ function openRequestModal(entry) {
     if (ev.target?.id === 'request-modal-backdrop') closeModal();
   });
 
-  loadModalCorrelations(entry.id);
   loadModalExplanations(entry.id);
   loadModalBodies(entry.id);
 }
@@ -397,32 +391,6 @@ function openRequestModal(entry) {
 function closeModal() {
   const root = document.getElementById('request-modal-root');
   if (root) root.innerHTML = '';
-}
-
-async function loadModalCorrelations(requestId) {
-  const list = document.getElementById('modal-correlations');
-  if (!list) return;
-  try {
-    const resp = await fetch(`/api/correlations?request_id=${encodeURIComponent(requestId)}&limit=20`);
-    if (resp.status === 404) {
-      list.innerHTML = '<div style="color:var(--text-2);font-size:12px">No correlation links for this request.</div>';
-      return;
-    }
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const links = await resp.json();
-    if (!Array.isArray(links) || links.length === 0) {
-      list.innerHTML = '<div style="color:var(--text-2);font-size:12px">No correlation links for this request.</div>';
-      return;
-    }
-    list.innerHTML = links.map(link => {
-      const created = Number.isFinite(link.created_at_ms) ? new Date(link.created_at_ms).toLocaleTimeString() : '—';
-      const confidence = Number.isFinite(link.confidence) ? (link.confidence * 100).toFixed(0) + '%' : '—';
-      return `<div class="correlation-item"><div class="correlation-meta"><span>Type: ${esc(link.link_type || 'unknown')}</span><span>Confidence: ${confidence}</span><span>Event: ${esc(link.local_event_id || '—')}</span><span>At: ${created}</span></div><div>${esc(link.reason || '')}</div></div>`;
-    }).join('');
-  } catch (e) {
-    console.error('Failed to load modal correlations:', e);
-    list.innerHTML = '<div style="color:var(--red);font-size:12px">Failed to load correlation links.</div>';
-  }
 }
 
 async function loadModalExplanations(requestId) {
@@ -435,7 +403,7 @@ async function loadModalExplanations(requestId) {
       return;
     }
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const rows = await resp.json();
+    const rows = envelopeData(await resp.json());
     if (!Array.isArray(rows) || rows.length === 0) {
       list.innerHTML = '<div style="color:var(--text-2);font-size:12px">No explanations for this request.</div>';
       return;
@@ -617,50 +585,6 @@ function filterSession(id) {
   if (select) select.value = currentSessionFilter;
   clearAnomalyFocus({ restoreSnapshot: false, reload: false });
   loadEntries();
-}
-
-async function loadCorrelations(requestId) {
-  const requestLabel = document.getElementById('correlation-request-id');
-  const list = document.getElementById('correlation-list');
-  requestLabel.textContent = requestId;
-  list.innerHTML = '<div style="color:var(--text-2);font-size:12px">Loading correlations…</div>';
-
-  try {
-    const resp = await fetch(`/api/correlations?request_id=${encodeURIComponent(requestId)}&limit=20`);
-    if (resp.status === 404) {
-      list.innerHTML = '<div style="color:var(--text-2);font-size:12px">No correlation links for this request.</div>';
-      return;
-    }
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    const links = envelopeData(await resp.json());
-
-    if (selectedRequestId !== requestId) return;
-
-    if (!Array.isArray(links) || links.length === 0) {
-      list.innerHTML = '<div style="color:var(--text-2);font-size:12px">No correlation links for this request.</div>';
-      return;
-    }
-
-    list.innerHTML = '<div style="color:var(--text-2);font-size:11px;margin-bottom:6px">Confidence is heuristic (ranking signal, not probability).</div>' + links.map(link => {
-      const created = Number.isFinite(link.created_at_ms) ? new Date(link.created_at_ms).toLocaleTimeString() : '—';
-      const confidence = Number.isFinite(link.confidence) ? (link.confidence * 100).toFixed(0) + '%' : '—';
-      return `
-        <div class="correlation-item">
-          <div class="correlation-meta">
-            <span>Type: ${esc(link.link_type || 'unknown')}</span>
-            <span>Confidence: ${confidence}</span>
-            <span>Event: ${esc(link.local_event_id || '—')}</span>
-            <span>At: ${created}</span>
-          </div>
-          <div>${esc(link.reason || '')}</div>
-        </div>
-      `;
-    }).join('');
-  } catch (e) {
-    if (selectedRequestId !== requestId) return;
-    console.error('Failed to load correlations:', e);
-    list.innerHTML = '<div style="color:var(--red);font-size:12px">Failed to load correlation links.</div>';
-  }
 }
 
 async function loadExplanations(requestId) {

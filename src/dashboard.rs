@@ -77,7 +77,6 @@ fn build_dashboard_app(
         .route("/api/sessions", get(api_sessions))
         .route("/api/sessions/:id", get(api_session_by_id))
         .route("/api/sessions/merged", get(api_sessions_merged))
-        .route("/api/correlations", get(api_correlations))
         .route("/api/explanations", get(api_explanations))
         .route("/api/timeline", get(api_timeline))
         .route("/api/session-graph", get(api_session_graph))
@@ -466,12 +465,6 @@ async fn api_sessions_merged(State(state): State<DashboardState>) -> impl IntoRe
 }
 
 #[derive(serde::Deserialize)]
-struct CorrelationsQuery {
-    request_id: String,
-    limit: Option<usize>,
-}
-
-#[derive(serde::Deserialize)]
 struct ExplanationsQuery {
     request_id: String,
     limit: Option<usize>,
@@ -498,16 +491,6 @@ struct TimelineItem {
     request_id: Option<String>,
     local_event_id: Option<String>,
     label: String,
-}
-
-async fn api_correlations(
-    State(state): State<DashboardState>,
-    Query(q): Query<CorrelationsQuery>,
-) -> impl IntoResponse {
-    let links = state
-        .stats
-        .get_correlations_for_request(&q.request_id, q.limit.unwrap_or(50));
-    axum::Json(versioned(links))
 }
 
 async fn api_explanations(
@@ -915,16 +898,6 @@ mod tests {
         assert!(html.contains("data-tab=\"anomalies\""));
         assert!(html.contains("data-tab=\"sessions\""));
         assert!(!html.contains("data-tab=\"settings\""));
-    }
-
-    #[tokio::test]
-    async fn dashboard_html_includes_correlation_panel() {
-        let html = super::assemble_dashboard_html();
-        assert!(html.contains("id=\"correlation-panel\""));
-        assert!(html.contains("loadCorrelations("));
-        assert!(html.contains("/api/correlations?request_id="));
-        assert!(html.contains("tr.addEventListener('click'"));
-        assert!(html.contains("selectedRequestId = e.id"));
     }
 
     #[tokio::test]
@@ -1943,110 +1916,6 @@ mod tests {
         assert_eq!(graph.session_id, "s-1");
         assert!(graph.nodes.iter().any(|n| n.kind == "request"));
         assert!(!graph.edges.is_empty());
-
-        let _ = std::fs::remove_dir_all(&log_dir);
-    }
-
-    #[tokio::test]
-    async fn correlations_endpoint_returns_links_for_request() {
-        let log_dir = std::env::temp_dir().join(format!(
-            "claude-proxy-dashboard-correlations-{}",
-            uuid::Uuid::new_v4()
-        ));
-        std::fs::create_dir_all(&log_dir).unwrap();
-
-        let store = Arc::new(StatsStore::new(
-            10,
-            log_dir.clone(),
-            20.0,
-            8.0,
-            2_097_152,
-            log_dir.clone(),
-        ));
-
-        let mut req_1 = sample_entry();
-        req_1.id = "req-1".into();
-        store.add_entry(req_1);
-
-        let mut req_2 = sample_entry();
-        req_2.id = "req-2".into();
-        store.add_entry(req_2);
-
-        store.upsert_local_event(&LocalEvent {
-            id: "evt-1".into(),
-            source_kind: SourceKind::ClaudeProject,
-            source_path: "project/a/session.json".into(),
-            event_time_ms: chrono::Utc::now().timestamp_millis(),
-            session_hint: Some("session-1".into()),
-            event_kind: "session_touch".into(),
-            model_hint: None,
-            payload_policy: crate::correlation::PayloadPolicy::MetadataOnly,
-            payload_json: serde_json::json!({}),
-        });
-
-        store.upsert_local_event(&LocalEvent {
-            id: "evt-2".into(),
-            source_kind: SourceKind::ClaudeProject,
-            source_path: "project/b/session.json".into(),
-            event_time_ms: chrono::Utc::now().timestamp_millis(),
-            session_hint: Some("session-1".into()),
-            event_kind: "session_touch".into(),
-            model_hint: None,
-            payload_policy: crate::correlation::PayloadPolicy::MetadataOnly,
-            payload_json: serde_json::json!({}),
-        });
-
-        store.upsert_request_correlation(&RequestCorrelation {
-            id: "corr-1".into(),
-            request_id: "req-1".into(),
-            local_event_id: "evt-1".into(),
-            link_type: CorrelationLinkType::SessionHint,
-            confidence: 0.92,
-            reason: "matched session hint".into(),
-            created_at_ms: chrono::Utc::now().timestamp_millis(),
-        });
-
-        store.upsert_request_correlation(&RequestCorrelation {
-            id: "corr-2".into(),
-            request_id: "req-2".into(),
-            local_event_id: "evt-2".into(),
-            link_type: CorrelationLinkType::Temporal,
-            confidence: 0.51,
-            reason: "nearby timestamp".into(),
-            created_at_ms: chrono::Utc::now().timestamp_millis(),
-        });
-
-        let app = build_dashboard_app(store, test_v2_store(), None);
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method(Method::GET)
-                    .uri("/api/correlations?request_id=req-1&limit=5")
-                    .body(Body::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-
-        assert_eq!(response.status(), StatusCode::OK);
-        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let envelope: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(
-            envelope.get("version").and_then(|v| v.as_str()),
-            Some("2026-04-11")
-        );
-        assert!(envelope
-            .get("generated_at_ms")
-            .and_then(|v| v.as_i64())
-            .is_some());
-        let links: Vec<RequestCorrelation> =
-            serde_json::from_value(envelope["data"].clone()).unwrap();
-
-        assert_eq!(links.len(), 1);
-        assert_eq!(links[0].id, "corr-1");
-        assert_eq!(links[0].request_id, "req-1");
 
         let _ = std::fs::remove_dir_all(&log_dir);
     }
