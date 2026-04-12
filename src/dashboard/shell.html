@@ -227,8 +227,22 @@
     </div>
   </div>
 
-  <!-- ═══ SESSIONS TAB (placeholder) ═══ -->
-  <div id="tab-sessions" class="tab-panel" style="display:none"></div>
+  <!-- ═══ SESSIONS TAB ═══ -->
+  <div class="tab-content" id="tab-sessions">
+    <div class="sessions-split">
+      <div class="sessions-left" id="session-list">
+        <div class="empty-state"><h3>No sessions recorded yet</h3><p>Sessions appear as requests come in</p></div>
+      </div>
+      <div class="sessions-right" id="session-details">
+        <div class="card">
+          <div class="empty-state" style="padding:20px 12px">
+            <h3 style="font-size:14px">No session selected</h3>
+            <p>Click a session card to inspect summary, timeline, and graph details</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 <script>
 {utils_js}

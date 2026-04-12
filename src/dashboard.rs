@@ -2079,4 +2079,13 @@ mod tests {
         assert!(html.contains("id=\"tab-anomalies\""), "shell.html must contain anomalies tab panel");
         assert!(html.contains("id=\"anomaly-list\""), "shell.html must contain anomaly list");
     }
+
+    #[tokio::test]
+    async fn assembled_dashboard_contains_sessions_tab() {
+        let html = super::assemble_dashboard_html();
+        assert!(html.contains("function loadSessions("), "sessions.js must contain loadSessions()");
+        assert!(html.contains("function selectSession("), "sessions.js must contain selectSession()");
+        assert!(html.contains("id=\"tab-sessions\""), "shell.html must contain sessions tab panel");
+        assert!(html.contains("id=\"session-list\""), "shell.html must contain session list");
+    }
 }
