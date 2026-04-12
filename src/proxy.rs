@@ -395,13 +395,34 @@ fn process_sse_text_chunk(
     usage: &mut UsageData,
     stop_reason: &mut Option<String>,
 ) {
+    process_sse_text_chunk_with_stats(chunk_text, line_buffer, usage, stop_reason, None);
+}
+
+fn process_sse_text_chunk_with_stats(
+    chunk_text: &str,
+    line_buffer: &mut String,
+    usage: &mut UsageData,
+    stop_reason: &mut Option<String>,
+    unknown_stats: Option<&mut crate::types::UnknownFieldStats>,
+) {
     line_buffer.push_str(chunk_text);
+
+    // We need to track the stats mutably across iterations
+    let mut stats = unknown_stats;
 
     while let Some(newline_idx) = line_buffer.find('\n') {
         let mut line = line_buffer[..newline_idx].to_string();
         if line.ends_with('\r') {
             line.pop();
         }
+
+        // Check for SSE event type lines ("event: <type>")
+        if let Some(event_type) = line.strip_prefix("event: ") {
+            if let Some(ref mut s) = stats {
+                s.record_unknown_event(event_type.trim());
+            }
+        }
+
         process_sse_line(&line, usage, stop_reason);
         line_buffer.drain(..=newline_idx);
     }
