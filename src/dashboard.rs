@@ -201,17 +201,54 @@ async fn api_model_comparison(
     State(state): State<DashboardState>,
 ) -> impl IntoResponse {
     let observed = state.store.get_model_profile_observed(&name).ok().flatten();
+
+    let (behavior_class, expected) = if let Some(ref config) = state.model_config {
+        let class = crate::model_profile::resolve_behavior_class(config, &name);
+        let profile = class.as_ref().and_then(|c| config.profiles.get(c).cloned());
+        (class, profile)
+    } else {
+        (None, None)
+    };
+
+    let deviations = if let (Some(ref obs), Some(ref exp)) = (&observed, &expected) {
+        if let (Some(obs_obj), Some(exp_obj)) = (obs.as_object(), exp.as_object()) {
+            let mut devs = serde_json::Map::new();
+            for (key, exp_val) in exp_obj {
+                if let (Some(e), Some(o)) = (exp_val.as_f64(), obs_obj.get(key).and_then(|v| v.as_f64())) {
+                    if e != 0.0 {
+                        devs.insert(key.clone(), serde_json::json!((o - e) / e * 100.0));
+                    }
+                }
+            }
+            Some(serde_json::Value::Object(devs))
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     Json(serde_json::json!({
         "model": name,
+        "behavior_class": behavior_class,
         "observed": observed,
+        "expected": expected,
+        "deviations": deviations,
     }))
 }
 
 async fn api_model_config(State(state): State<DashboardState>) -> impl IntoResponse {
-    match state.store.list_all_model_stats() {
-        Ok(models) => Json(serde_json::json!({"models": models})),
-        Err(_) => Json(serde_json::json!({"models": []})),
-    }
+    let models = state.store.list_all_model_stats().unwrap_or_default();
+    let config_info = state.model_config.as_ref().map(|c| {
+        serde_json::json!({
+            "mappings": c.model_mappings,
+            "profile_names": c.profiles.keys().collect::<Vec<_>>(),
+        })
+    });
+    Json(serde_json::json!({
+        "models": models,
+        "config": config_info,
+    }))
 }
 
 async fn api_put_model_config(Json(payload): Json<serde_json::Value>) -> impl IntoResponse {
