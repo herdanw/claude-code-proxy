@@ -757,10 +757,12 @@ impl Store {
     /// Delete all data from the v2 store (requests, bodies, tool_usage, anomalies, model_profiles).
     pub fn clear_all(&self) -> Result<(), rusqlite::Error> {
         let db = self.db.lock();
-        // Order matters: child tables with FK references first
+        // Order matters: child tables with FK references first.
+        // Note: request_bodies_fts is a content-sync FTS5 table — it is
+        // automatically updated by the AFTER DELETE trigger on request_bodies,
+        // so we must NOT delete from it directly.
         db.execute_batch(
-            "DELETE FROM request_bodies_fts;
-             DELETE FROM request_bodies;
+            "DELETE FROM request_bodies;
              DELETE FROM tool_usage;
              DELETE FROM anomalies;
              DELETE FROM model_profiles;
