@@ -235,6 +235,9 @@ function handleReset(summary) {
     sessionDetails.innerHTML = '<div class="card"><div class="empty-state" style="padding:20px 12px"><h3 style="font-size:14px">No session selected</h3><p>Click a session card to inspect summary, timeline, and graph details</p></div></div>';
   }
   document.getElementById('anomaly-list').innerHTML = EMPTY_ANOMALIES_HTML;
+  _selectedConformanceModel = null;
+  document.getElementById('conformance-detail').style.display = 'none';
+  loadConformanceData();
   closeModal();
   loadOverview();
 

@@ -754,6 +754,21 @@ impl Store {
         }
     }
 
+    /// Delete all data from the v2 store (requests, bodies, tool_usage, anomalies, model_profiles).
+    pub fn clear_all(&self) -> Result<(), rusqlite::Error> {
+        let db = self.db.lock();
+        // Order matters: child tables with FK references first
+        db.execute_batch(
+            "DELETE FROM request_bodies_fts;
+             DELETE FROM request_bodies;
+             DELETE FROM tool_usage;
+             DELETE FROM anomalies;
+             DELETE FROM model_profiles;
+             DELETE FROM requests;",
+        )?;
+        Ok(())
+    }
+
     pub fn list_all_model_stats(&self) -> Result<Vec<serde_json::Value>, rusqlite::Error> {
         let db = self.db.lock();
         let mut stmt = db.prepare(

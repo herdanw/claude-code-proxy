@@ -831,6 +831,8 @@ async fn api_reset_memory(State(state): State<DashboardState>) -> impl IntoRespo
 }
 
 async fn api_reset(State(state): State<DashboardState>) -> impl IntoResponse {
+    // Also clear the v2 store (conformance data, model profiles, etc.)
+    let _ = state.store.clear_all();
     axum::Json(state.stats.clear_all())
 }
 
