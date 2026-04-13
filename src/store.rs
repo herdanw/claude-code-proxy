@@ -755,20 +755,20 @@ impl Store {
     }
 
     /// Delete all data from the v2 store (requests, bodies, tool_usage, anomalies, model_profiles).
-    pub fn clear_all(&self) -> Result<(), rusqlite::Error> {
+    /// Returns per-table deletion counts for diagnostics.
+    pub fn clear_all(&self) -> Result<Vec<(&'static str, usize)>, rusqlite::Error> {
         let db = self.db.lock();
         // Order matters: child tables with FK references first.
         // Note: request_bodies_fts is a content-sync FTS5 table — it is
         // automatically updated by the AFTER DELETE trigger on request_bodies,
         // so we must NOT delete from it directly.
-        db.execute_batch(
-            "DELETE FROM request_bodies;
-             DELETE FROM tool_usage;
-             DELETE FROM anomalies;
-             DELETE FROM model_profiles;
-             DELETE FROM requests;",
-        )?;
-        Ok(())
+        let tables = ["request_bodies", "tool_usage", "anomalies", "model_profiles", "requests"];
+        let mut counts = Vec::new();
+        for table in &tables {
+            let deleted = db.execute(&format!("DELETE FROM {table}"), [])?;
+            counts.push((*table, deleted));
+        }
+        Ok(counts)
     }
 
     pub fn list_all_model_stats(&self) -> Result<Vec<serde_json::Value>, rusqlite::Error> {

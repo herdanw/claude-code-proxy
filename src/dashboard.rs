@@ -345,6 +345,7 @@ async fn api_model_comparison(
 
 async fn api_model_config(State(state): State<DashboardState>) -> impl IntoResponse {
     let models = state.store.list_all_model_stats().unwrap_or_default();
+    eprintln!("  [diag] /api/model-config: {} models from v2 store", models.len());
     let config_info = state.model_config.as_ref().map(|c| {
         serde_json::json!({
             "mappings": c.model_mappings,
@@ -826,9 +827,14 @@ async fn api_claude_sessions(State(state): State<DashboardState>) -> impl IntoRe
 }
 
 async fn api_reset(State(state): State<DashboardState>) -> impl IntoResponse {
-    // Also clear the v2 store (conformance data, model profiles, etc.)
-    let _ = state.store.clear_all();
-    axum::Json(state.stats.clear_all())
+    // Clear the v2 store (conformance data, model profiles, etc.)
+    match state.store.clear_all() {
+        Ok(counts) => eprintln!("  \x1b[92m✓\x1b[0m v2 store cleared: {counts:?}"),
+        Err(e) => eprintln!("  \x1b[91m✗\x1b[0m v2 store clear FAILED: {e}"),
+    }
+    let summary = state.stats.clear_all();
+    eprintln!("  \x1b[92m✓\x1b[0m stats store cleared: {} in-memory, {} persisted", summary.cleared_entries, summary.deleted_persisted_entries);
+    axum::Json(summary)
 }
 
 async fn api_settings_history(State(state): State<DashboardState>) -> impl IntoResponse {
