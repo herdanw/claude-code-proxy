@@ -435,21 +435,120 @@ async function loadModalBodies(requestId) {
     }
 
     const requestBody = tryFormatJson(body.request_body || '');
-    const responseBody = tryFormatJson(body.response_body || '');
+    const rawResponse = body.response_body || '';
+    const isSse = rawResponse.trimStart().startsWith('event:');
+    const mergedResponse = isSse ? accumulateSseEvents(rawResponse) : null;
+
+    let responseMode = 'raw'; // 'raw' | 'merged'
+
+    function renderResponseSection() {
+      const section = root.querySelector('#response-body-section');
+      if (!section) return;
+      if (responseMode === 'merged' && mergedResponse !== null) {
+        section.querySelector('pre').textContent = JSON.stringify(mergedResponse, null, 2);
+      } else {
+        section.querySelector('pre').textContent = rawResponse || '—';
+      }
+    }
+
+    const toggleBtn = isSse && mergedResponse
+      ? `<button id="response-view-toggle" style="font-size:11px;padding:2px 8px;cursor:pointer;margin-left:8px">Show merged</button>`
+      : '';
+
     root.innerHTML = `
       <details class="modal-collapsible" open>
         <summary>Request body ${body.truncated ? '(truncated)' : ''}</summary>
         <pre class="modal-body-content">${esc(requestBody || '—')}</pre>
       </details>
-      <details class="modal-collapsible" style="margin-top:8px" open>
-        <summary>Response body ${body.truncated ? '(truncated)' : ''}</summary>
-        <pre class="modal-body-content">${esc(responseBody || '—')}</pre>
+      <details class="modal-collapsible" style="margin-top:8px" open id="response-body-section">
+        <summary>Response body ${body.truncated ? '(truncated)' : ''}${toggleBtn}</summary>
+        <pre class="modal-body-content">${esc(rawResponse || '—')}</pre>
       </details>
     `;
+
+    root.querySelector('#response-view-toggle')?.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      responseMode = responseMode === 'raw' ? 'merged' : 'raw';
+      ev.target.textContent = responseMode === 'raw' ? 'Show merged' : 'Show raw SSE';
+      renderResponseSection();
+    });
   } catch (e) {
     console.error('Failed to load modal bodies:', e);
     root.innerHTML = '<div style="color:var(--red);font-size:12px">Failed to load request/response bodies.</div>';
   }
+}
+
+function accumulateSseEvents(sseText) {
+  // Parse SSE lines into {event, data} pairs
+  const events = [];
+  let currentEvent = null;
+  let currentData = [];
+  for (const line of sseText.split('\n')) {
+    const trimmed = line.trimEnd();
+    if (trimmed.startsWith('event:')) {
+      currentEvent = trimmed.slice(6).trim();
+    } else if (trimmed.startsWith('data:')) {
+      currentData.push(trimmed.slice(5).trim());
+    } else if (trimmed === '') {
+      if (currentEvent || currentData.length) {
+        events.push({ event: currentEvent, data: currentData.join('\n') });
+      }
+      currentEvent = null;
+      currentData = [];
+    }
+  }
+  if (currentEvent || currentData.length) {
+    events.push({ event: currentEvent, data: currentData.join('\n') });
+  }
+
+  let message = null;
+  const inputBuffers = {}; // index -> partial JSON string for tool_use inputs
+
+  for (const { event, data } of events) {
+    let parsed;
+    try { parsed = JSON.parse(data); } catch (_) { continue; }
+
+    if (event === 'message_start' && parsed.message) {
+      message = { ...parsed.message, content: [] };
+    } else if (event === 'content_block_start' && message) {
+      const block = { ...parsed.content_block };
+      if (block.type === 'tool_use') {
+        inputBuffers[parsed.index] = '';
+        block.input = {};
+      } else if (block.type === 'text') {
+        block.text = '';
+      } else if (block.type === 'thinking') {
+        block.thinking = '';
+      }
+      message.content[parsed.index] = block;
+    } else if (event === 'content_block_delta' && message) {
+      const block = message.content[parsed.index];
+      if (!block) continue;
+      const delta = parsed.delta;
+      if (delta.type === 'text_delta') {
+        block.text = (block.text || '') + delta.text;
+      } else if (delta.type === 'input_json_delta') {
+        inputBuffers[parsed.index] = (inputBuffers[parsed.index] || '') + delta.partial_json;
+      } else if (delta.type === 'thinking_delta') {
+        block.thinking = (block.thinking || '') + delta.thinking;
+      } else if (delta.type === 'signature_delta') {
+        block.signature = delta.signature;
+      }
+    } else if (event === 'content_block_stop' && message) {
+      const block = message.content[parsed.index];
+      if (block?.type === 'tool_use' && inputBuffers[parsed.index] !== undefined) {
+        try { block.input = JSON.parse(inputBuffers[parsed.index]); } catch (_) { block.input = inputBuffers[parsed.index]; }
+        delete inputBuffers[parsed.index];
+      }
+    } else if (event === 'message_delta' && message && parsed.delta) {
+      if (parsed.delta.stop_reason !== undefined) message.stop_reason = parsed.delta.stop_reason;
+      if (parsed.delta.stop_sequence !== undefined) message.stop_sequence = parsed.delta.stop_sequence;
+      if (parsed.usage) message.usage = { ...message.usage, ...parsed.usage };
+    }
+    // ping and message_stop are ignored
+  }
+
+  return message;
 }
 
 function tryFormatJson(text) {
