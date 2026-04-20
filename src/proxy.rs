@@ -641,7 +641,9 @@ fn build_response_headers(source: &HeaderMap) -> HeaderMap {
     let mut headers = HeaderMap::new();
 
     for (key, value) in source.iter() {
-        if key != TRANSFER_ENCODING && key != CONNECTION {
+        // Strip hop-by-hop headers and content-encoding: reqwest auto-decompresses,
+        // so the body we forward is already plain text.
+        if key != TRANSFER_ENCODING && key != CONNECTION && key != CONTENT_ENCODING {
             headers.insert(key.clone(), value.clone());
         }
     }
@@ -743,7 +745,7 @@ mod tests {
     use axum::http::HeaderValue;
 
     #[test]
-    fn build_response_headers_preserves_content_encoding() {
+    fn build_response_headers_strips_content_encoding() {
         let mut headers = HeaderMap::new();
         headers.insert(CONTENT_ENCODING, HeaderValue::from_static("gzip"));
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
@@ -751,7 +753,8 @@ mod tests {
 
         let copied = build_response_headers(&headers);
 
-        assert_eq!(copied.get(CONTENT_ENCODING).unwrap(), "gzip");
+        // content-encoding is stripped because reqwest auto-decompresses the body
+        assert!(copied.get(CONTENT_ENCODING).is_none());
         assert_eq!(copied.get(CONTENT_TYPE).unwrap(), "application/json");
         assert!(copied.get(TRANSFER_ENCODING).is_none());
     }
